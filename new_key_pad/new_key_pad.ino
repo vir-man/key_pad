@@ -1984,6 +1984,54 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     return 0;
   }
 }
+
+int8_t first_user_verified =0;
+bool verify_dual_password(){
+  user_id = (uint8_t)(password[0]) - 48;
+  if ((first_user_verified || user_id == 1) && is_password_valid(password[0], &password[1], pass_length - 1))
+  {
+    if(first_user_verified){
+      if(user_id == 1){
+        Serial.println("MASTER_INPUT_STATE");
+        display_screen = MASTER_INPUT_STATE;
+        is_displayed = 0;
+      }else{
+        // TODO: Unlock the safe
+        user_id = (uint8_t)(password[0]) - 48;
+        Serial.print("USER ID -- >");
+        Serial.println(user_id);
+        // call funtion
+        check_if_door_access_is_allowed(user_id);
+        first_user_verified = 0;
+      }
+    }else if(user_id == 1){ 
+      // if condition is not required as it should be true by default as main if has two conditions only
+        first_user_verified = 1;
+        is_displayed = 1;
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("ENTER USER PW:");
+        pass_length = 0;
+        memset(password, '\0', 15);
+        user_id = -1;
+      
+    }
+  }
+  else
+  {
+    Serial.print("USER ID is ");
+    Serial.println(user_id);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("Invld Password!!");
+    is_displayed = 0;
+    delay(1000);
+    display_screen = LOCK_DOOR_STATE;
+    pass_length = 0;
+    first_user_verified=0;
+    return 0;
+  }
+}
 bool verify_password()
 {
   Serial.println(password);
@@ -2209,7 +2257,91 @@ void input_otp_fsm()
     }
   }
 }
+#define FINGERPRINT_FSM_STATE_DEFAULT           1
+#define FINGERPRINT_FSM_STATE_WRONG_MASTER      2
+#define FINGERPRINT_FSM_STATE_ENTER_USER        3
+#define FINGERPRINT_FSM_STATE_WRONG_USER        4
+#define FINGERPRINT_FSM_STATE_DOOR_UNLOCKED     5
 
+uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+void fingerprint_manager_fsm(){
+  switch(fingerprint_manager_fsm_state){
+    case  FINGERPRINT_FSM_STATE_DEFAULT:
+        user_id = getFingerprintID();
+        if (user_id != -1 && user_id <= MAX_NUM_OF_USERS ){
+          if((user_id - 1) == 0){
+            fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
+            is_displayed = 1;
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("USER FINGERPRNT");
+            lcd.setCursor(0, 1);
+            lcd.print("PLEASE !!");
+            delay(2000);
+          }else{
+            fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_MASTER;
+          }
+        }
+      break;
+    case FINGERPRINT_FSM_STATE_WRONG_MASTER:
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("MASTER FINGERPRNT");
+      lcd.setCursor(0, 1);
+      lcd.print("NOT MATCHED!");
+      user_id = -1;
+      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+      delay(2000);
+      is_displayed = 0;
+      break;
+    case FINGERPRINT_FSM_STATE_ENTER_USER:
+      user_id = getFingerprintID();
+      if (user_id != -1 && user_id <= MAX_NUM_OF_USERS){
+        if( check_if_password_is_configured(user_id - 1) && (user_id -1 )!=0){
+          is_displayed = 1;
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("USER FINGERPRNT");
+          lcd.setCursor(0, 1);
+          lcd.print("MATCHED!!");
+          delay(2000);
+          is_displayed = 0;
+          fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DOOR_UNLOCKED;
+        }else{
+          fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_USER;
+        }
+      }  
+      break;
+    case FINGERPRINT_FSM_STATE_WRONG_USER:
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("USER FINGERPRNT");
+      lcd.setCursor(0, 1);
+      lcd.print("NOT MATCHED!");
+      user_id = -1;
+      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+      delay(2000);
+      is_displayed = 0;
+      break;
+    case FINGERPRINT_FSM_STATE_DOOR_UNLOCKED:
+      Serial.print("USER ID Found at ID ");
+      Serial.println(user_id);
+      check_if_door_access_is_allowed(user_id);
+      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+      break;
+  }
+  /*
+  user_id = getFingerprintID();
+  if (user_id != -1 && user_id <= MAX_NUM_OF_USERS && check_if_password_is_configured(user_id - 1))
+  {
+    Serial.print("USER ID Found at ID ");
+    Serial.println(user_id);
+    check_if_door_access_is_allowed(user_id);
+  }
+  */
+}
 void password_input_fsm()
 {
   if (!is_displayed)
@@ -2259,14 +2391,7 @@ void password_input_fsm()
   }
   else
   {
-    user_id = getFingerprintID();
-    if (user_id != -1 && user_id <= MAX_NUM_OF_USERS && check_if_password_is_configured(user_id - 1))
-    {
-      Serial.print("USER ID Found at ID ");
-      Serial.println(user_id);
-      check_if_door_access_is_allowed(user_id);
-    }
-
+    fingerprint_manager_fsm();
     // Serial.print("USER ID is ");
     // Serial.println(user_id);
     if (is_new_key)
@@ -2285,7 +2410,7 @@ void password_input_fsm()
         {
           if (display_screen == MASTER_PASSWORD)
           {
-            display_screen = MASTER_MAIN;
+            display_screen = MASTER_INPUT_STATE;
           }
           else if (display_screen == USER_PASSWORD)
           {
@@ -2295,6 +2420,9 @@ void password_input_fsm()
         is_displayed = 0;
         pass_length = 0;
         memset(password, '\0', 15);
+        user_id = -1;
+        first_user_verified = 0;
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
         break;
       case ENTER:
         if (pass_length >= 4 && pass_length <= 16)
@@ -2307,7 +2435,8 @@ void password_input_fsm()
           case MAIN:
             // Serial.print("Time difference : ");
             // Serial.println("Verifying PW : ");
-            verify_password();
+            // verify_password();
+            verify_dual_password();
             // Serial.println("Time difffffffffffffffffffffffffffff : ");
             // Serial.println(time_difference);
             if (time_difference > GUN_POINT_PRESS_TIMEOUT)
@@ -2462,7 +2591,7 @@ void date_time_input_fsm()
         {
           pass_length = 0;
           is_displayed = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
         }
         else
         {
@@ -2589,7 +2718,7 @@ void mobile_number_input_fsm(uint8_t id)
         {
           is_displayed = 0;
           input_mobile_number_count = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
           memset(input_mobile_number, '\0', 10);
         }
         else
@@ -2789,7 +2918,7 @@ void backup_screen_fsm()
       {
       case CANCEL:
         is_displayed = 0;
-        display_screen = MASTER_MAIN;
+        display_screen = MASTER_INPUT_STATE;
         break;
       case ENTER:
         lcd.clear();
@@ -2802,7 +2931,7 @@ void backup_screen_fsm()
 
           my_delay(1);
           is_displayed = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
           break;
         }
         if (!b_flash_drive_attached)
@@ -2814,7 +2943,7 @@ void backup_screen_fsm()
 
           my_delay(1);
           is_displayed = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
           break;
         }
         // if (b_flash_drive_attached && !b_sd_card_not_initiated)
@@ -2867,7 +2996,7 @@ void buzzer_input_fsm()
         {
           pass_length = 0;
           is_displayed = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
         }
         else
         {
@@ -2945,7 +3074,7 @@ void alpha_input_fsm()
         {
           pass_length = 0;
           is_displayed = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
         }
         else
         {
@@ -3315,7 +3444,7 @@ void fingerprint_input_fsm()
       {
         pass_length = 0;
         is_displayed = 0;
-        display_screen = MASTER_MAIN;
+        display_screen = MASTER_INPUT_STATE;
         // break;
       }
       else
@@ -3485,6 +3614,12 @@ void lcd_task()
       door_open_time = millis();
       b_buzzer_on = 1;
     }
+    if(!is_displayed){
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("MASTER SCREEN");
+    }
     if (is_new_key)
     {
       is_new_key = 0;
@@ -3539,7 +3674,7 @@ void lcd_task()
       case CANCEL:
         pass_length = 0;
         is_displayed = 0;
-        display_screen = MASTER_MAIN;
+        display_screen = MAIN;
         break;
       case LOCK:
         // open_door();
@@ -3664,7 +3799,7 @@ void lcd_task()
         {
           pass_length = 0;
           is_displayed = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
           break;
         }
         else
@@ -3721,7 +3856,7 @@ void lcd_task()
         {
           pass_length = 0;
           is_displayed = 0;
-          display_screen = MASTER_MAIN;
+          display_screen = MASTER_INPUT_STATE;
           break;
         }
         else
