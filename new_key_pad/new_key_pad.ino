@@ -1984,7 +1984,13 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     return 0;
   }
 }
+#define FINGERPRINT_FSM_STATE_DEFAULT           1
+#define FINGERPRINT_FSM_STATE_WRONG_MASTER      2
+#define FINGERPRINT_FSM_STATE_ENTER_USER        3
+#define FINGERPRINT_FSM_STATE_WRONG_USER        4
+#define FINGERPRINT_FSM_STATE_DOOR_UNLOCKED     5
 
+uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
 int8_t first_user_verified =0;
 bool verify_dual_password(){
   user_id = (uint8_t)(password[0]) - 48;
@@ -2008,10 +2014,14 @@ bool verify_dual_password(){
       // if condition is not required as it should be true by default as main if has two conditions only
         first_user_verified = 1;
         is_displayed = 1;
+        // lcd.clear();
+        // lcd.setCursor(0, 0);
+        // lcd.print("ENTER USER PW:");
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("ENTER USER PW:");
+        lcd.print("USER PASS/BIO :");
         pass_length = 0;
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
         memset(password, '\0', 15);
         user_id = -1;
       
@@ -2257,13 +2267,13 @@ void input_otp_fsm()
     }
   }
 }
-#define FINGERPRINT_FSM_STATE_DEFAULT           1
-#define FINGERPRINT_FSM_STATE_WRONG_MASTER      2
-#define FINGERPRINT_FSM_STATE_ENTER_USER        3
-#define FINGERPRINT_FSM_STATE_WRONG_USER        4
-#define FINGERPRINT_FSM_STATE_DOOR_UNLOCKED     5
+// #define FINGERPRINT_FSM_STATE_DEFAULT           1
+// #define FINGERPRINT_FSM_STATE_WRONG_MASTER      2
+// #define FINGERPRINT_FSM_STATE_ENTER_USER        3
+// #define FINGERPRINT_FSM_STATE_WRONG_USER        4
+// #define FINGERPRINT_FSM_STATE_DOOR_UNLOCKED     5
 
-uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+// uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
 void fingerprint_manager_fsm(){
   switch(fingerprint_manager_fsm_state){
     case  FINGERPRINT_FSM_STATE_DEFAULT:
@@ -2274,9 +2284,10 @@ void fingerprint_manager_fsm(){
             is_displayed = 1;
             lcd.clear();
             lcd.setCursor(0, 0);
-            lcd.print("USER FINGERPRNT");
-            lcd.setCursor(0, 1);
-            lcd.print("PLEASE !!");
+            lcd.print("USER PASS/BIO :");
+            // lcd.setCursor(0, 1);
+            // lcd.print("PLEASE !!");
+            first_user_verified = 1;
             delay(2000);
           }else{
             fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_MASTER;
@@ -2323,12 +2334,14 @@ void fingerprint_manager_fsm(){
       user_id = -1;
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
+      first_user_verified = 0;
       is_displayed = 0;
       break;
     case FINGERPRINT_FSM_STATE_DOOR_UNLOCKED:
       Serial.print("USER ID Found at ID ");
       Serial.println(user_id);
       check_if_door_access_is_allowed(user_id);
+      first_user_verified = 0;
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       break;
   }
@@ -2442,15 +2455,15 @@ void password_input_fsm()
             if (time_difference > GUN_POINT_PRESS_TIMEOUT)
             {
               b_gun_point_activation_triggerd = 1;
-              // siren_on(siren_pin[0]);
-              // siren_on(siren_pin[1]);
               generate_random_otp();
               gpa_state = GPA_SEND_MESSAGE;
               lcd.clear();
               lcd_power_off();
               lcd_power_on();
-              // lcd_state = LCD_STATE_OFF;
               Serial.println("GUN POINT ACTIVATED ");
+              // siren_on(siren_pin[0]);
+              // siren_on(siren_pin[1]);
+              // lcd_state = LCD_STATE_OFF;
               // if (display_screen == MASTER_MAIN)
               // {
               // }
@@ -3125,6 +3138,7 @@ void finger_print_sensor_init()
 
   // set the data rate for the sensor serial port
   finger.begin(57600);
+  finger.LEDcontrol(FINGERPRINT_LED_ON, 0, FINGERPRINT_LED_OFF);
   delay(5);
   if (finger.verifyPassword())
   {
@@ -5385,7 +5399,8 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.println("AT+CMGS=\"+91" + mbn + "\"\r"); // Replace x with mobile number
 
   delay(100);
-  SIM7600.print("The BMS System Door Has Been Forced Open.\n");
+  // SIM7600.print("The BMS System Door Has Been Forced Open.\n");
+  SIM7600.print("Duress Alert Is Activated in BMS System.\n");
   SIM7600.print("OTP to Deactivate the sensor for your system is: ");
   // SIM7600.println(String(_otp));
   SIM7600.print(generated_otp[0]);
@@ -5706,6 +5721,7 @@ void lcd_power_on()
 }
 void lcd_power_off()
 {
+  finger.LEDcontrol(FINGERPRINT_LED_ON, 0, FINGERPRINT_LED_OFF);
   // digitalWrite(LCD_GND, 1);
   // digitalWrite(LCD_VCC, 0);
   // digitalWrite(14,LOW);
