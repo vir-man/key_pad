@@ -472,7 +472,7 @@ void printInfo(const char info[])
 /*************** USB HARDWARE SERIAL CODE [END] ****************/
 /***** EEPROM SECTION [START] **/
 
-#define MAX_USER_TO_BE_STORED 5
+#define MAX_USER_TO_BE_STORED 8
 
 #define EEPROM_STARTING_ADDRESS 0
 
@@ -3438,8 +3438,8 @@ void fingerprint_input_fsm()
     lcd.setCursor(0, 0);
     lcd.print("ADD FINGERPRINT");
     lcd.setCursor(cursor_index, 1);
-    lcd.print("SELECT:");
-    cursor_index = 7;
+    //lcd.print("SELECT:");
+    // cursor_index = 7;
     for (int i = 0; i < MAX_NUM_OF_USERS; ++i)
     {
       if (check_if_password_is_configured(i))
@@ -3793,8 +3793,8 @@ void lcd_task()
       lcd.setCursor(2, 0);
       lcd.print("CREATE  USER");
       lcd.setCursor(cursor_index, 1);
-      lcd.print("SELECT: ");
-      cursor_index = 8;
+      //lcd.print("SELECT: ");
+      // cursor_index = 8;
       for (int i = 1; i < MAX_NUM_OF_USERS; ++i)
       {
         if (!check_if_password_is_configured(i))
@@ -3849,8 +3849,8 @@ void lcd_task()
       lcd.print("REMOVE USER");
 
       lcd.setCursor(cursor_index, 1);
-      lcd.print("SELECT: ");
-      cursor_index = 8;
+      //lcd.print("SELECT: ");
+      // cursor_index = 8;
       lcd.setCursor(cursor_index, 1);
       for (int i = 1; i < MAX_NUM_OF_USERS; ++i)
       {
