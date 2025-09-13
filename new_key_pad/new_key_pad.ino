@@ -1126,14 +1126,18 @@ bool previous_ir_value = 0;
 
 const int ir_input_pin = 15;
 bool b_siren_on = 0;
-#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+
+
+//#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+
+
 bool is_door_aligned_by_ir()
 {
-#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+//#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
   return 1;
-#else
-  return !current_ir_value;
-#endif
+//#else
+//  return !current_ir_value;
+//#endif
 }
 
 void siren_on(uint8_t i)
@@ -1433,8 +1437,8 @@ void init_dc_motor()
   pinMode(dc_motor_pin[1], OUTPUT);
   pinMode(sensor_pin[0], INPUT);
   pinMode(sensor_pin[1], INPUT);
-  pinMode(em_lock_control_pin, OUTPUT);
-  digitalWrite(em_lock_control_pin, 1);
+//  pinMode(em_lock_control_pin, OUTPUT);
+//  digitalWrite(em_lock_control_pin, 1);
 
   pinMode(ir_rx_pin, INPUT);
 
@@ -1516,25 +1520,25 @@ void dc_motor_task()
 }
 void dc_motor_stop()
 {
-  // digitalWrite(dc_motor_pin[0], 1);
-  // digitalWrite(dc_motor_pin[1], 1);
+   digitalWrite(dc_motor_pin[0], 1);
+   digitalWrite(dc_motor_pin[1], 1);
 }
 void dc_motor_on(int direction)
 {
   if (direction == CW)
   {
-    digitalWrite(em_lock_control_pin, 0);
-    delay(300);
-    digitalWrite(em_lock_control_pin, 1);
-    // Serial.println("Moving CW");
-    // digitalWrite(dc_motor_pin[0], 0);
-    // digitalWrite(dc_motor_pin[1], 1);
+//    digitalWrite(em_lock_control_pin, 0);
+//    delay(300);
+//    digitalWrite(em_lock_control_pin, 1);
+     Serial.println("Moving CW");
+     digitalWrite(dc_motor_pin[0], 0);
+     digitalWrite(dc_motor_pin[1], 1);
   }
   else if (direction == CCW)
   {
-    // Serial.println("Moving CCW");
-    // digitalWrite(dc_motor_pin[0], 1);
-    // digitalWrite(dc_motor_pin[1], 0);
+     Serial.println("Moving CCW");
+     digitalWrite(dc_motor_pin[0], 1);
+     digitalWrite(dc_motor_pin[1], 0);
   }
 }
 
@@ -1543,7 +1547,7 @@ bool is_door_open()
 #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
   return 1;
 #else
-  return door_sensor_state[0];
+  return !door_sensor_state[0];
 #endif
 }
 bool is_door_close()
@@ -1551,7 +1555,7 @@ bool is_door_close()
 #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
   return 1;
 #else
-  return !door_sensor_state[0]; // !door_sensor_state[1];
+  return !door_sensor_state[1]; // !door_sensor_state[1];
 #endif
 }
 
@@ -2036,7 +2040,7 @@ bool verify_dual_password(){
     lcd.print("Invld Password!!");
     is_displayed = 0;
     delay(1000);
-    display_screen = LOCK_DOOR_STATE;
+    display_screen = MAIN;
     pass_length = 0;
     first_user_verified=0;
     return 0;
