@@ -26,7 +26,7 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 #define DEBUG_PRINT(x)
 #define DEBUG_PRINTLN(x)
 #endif
-#define SIM7600 Serial1
+#define SIM7600 sim7600Serial
 
 /********************************************************************/
 // Setup a oneWire instance to communicate with any OneWire devices
@@ -35,6 +35,7 @@ OneWire oneWire(ONE_WIRE_BUS);
 /********************************************************************/
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
+SoftwareSerial sim7600Serial(19, 18); // RX, TX pins for SIM7600
 /********************************************************************/
 unsigned long temperature_read_timeout;
 unsigned int temperature_read_time_interval = 10000;
