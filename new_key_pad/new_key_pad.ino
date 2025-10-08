@@ -3488,7 +3488,7 @@ void fingerprint_register_fsm()
   if (getFingerprintEnroll(temp_user_id))
   {
     is_displayed = 0;
-    display_screen = MASTER_MAIN;
+    display_screen = MASTER_INPUT_STATE;
   }
   else
   {
