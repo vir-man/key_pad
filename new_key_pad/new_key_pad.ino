@@ -28,6 +28,10 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 #endif
 #define SIM7600 sim7600Serial
 
+#define LCD_PRINT(s) lcd.print(F(s))
+#define SERIAL_PRINT(s) Serial.print(F(s))
+#define SERIAL_PRINTLN(s) Serial.println(F(s))
+
 /********************************************************************/
 // Setup a oneWire instance to communicate with any OneWire devices
 // (not just Maxim/Dallas temperature ICs)
@@ -130,13 +134,13 @@ void update_date_time_from_rtc()
   Serial.print('/');
   Serial.print(year);
 
-  Serial.print("  Time: ");
+  SERIAL_PRINT("  Time: ");
   Serial.print(hour);
   Serial.print(':');
   Serial.print(minute);
   Serial.print(':');
   Serial.print(second);
-  Serial.print(" ");
+  SERIAL_PRINT(" ");
 
   Serial.print(DayAsString(day_of_week));
   Serial.println();
@@ -185,11 +189,11 @@ bool b_sd_card_not_initiated = 0;
 File myFile;
 void sd_init()
 {
-  Serial.print("Initializing SD card...");
+  SERIAL_PRINT("Initializing SD card...");
   // see if the card is present and can be initialized:
   if (!SD.begin(chipSelect))
   {
-    Serial.println("Card failed, or not present");
+    SERIAL_PRINTLN("Card failed, or not present");
     // don't do anything more:
     b_sd_card_not_initiated = 1;
     // while (1)
@@ -197,7 +201,7 @@ void sd_init()
   }
   else
   {
-    Serial.println("card initialized.");
+    SERIAL_PRINTLN("card initialized.");
   }
 
   // we'll use the initialization code from the utility libraries
@@ -400,7 +404,7 @@ void copy_data_from_sd_card_to_usb_flash_drive()
   char input_string_char_array[100];
   // Serial.println("Coming 1");
 
-  Serial.print("File opened!");
+  SERIAL_PRINT("File opened!");
   File dataFile = SD.open("BMS-LOG1.TXT");
   char file_start_str[] = "SR.    USER      DATE         TIME      REMARKS\n---------------------------------------------\n";
   //  flashDrive.init();
@@ -426,7 +430,7 @@ void copy_data_from_sd_card_to_usb_flash_drive()
     }
     flashDrive.closeFile();
     dataFile.close();
-    Serial.println("Reading recently written file");
+    SERIAL_PRINTLN("Reading recently written file");
     flashDrive.setFileName("BMS-LOG1.TXT"); // set the file name
     flashDrive.openFile();                  // open the file
     bool readMore = true;
@@ -445,7 +449,7 @@ void copy_data_from_sd_card_to_usb_flash_drive()
   else
   {
     b_backup_in_progress = 0;
-    Serial.println("error opening BMS-LOG1.TXT");
+    SERIAL_PRINTLN("error opening BMS-LOG1.TXT");
   }
 }
 // Print information
@@ -473,7 +477,7 @@ void printInfo(const char info[])
 /*************** USB HARDWARE SERIAL CODE [END] ****************/
 /***** EEPROM SECTION [START] **/
 
-#define MAX_USER_TO_BE_STORED 8
+#define MAX_USER_TO_BE_STORED 28
 
 #define EEPROM_STARTING_ADDRESS 0
 
@@ -488,18 +492,24 @@ void printInfo(const char info[])
 #define BUZZER_TIMEOUT_LEN_COUNT 4
 #define DOOR_OPEN_COUND_LEN_COUNT 4
 
-size_t is_pw_configured_address[MAX_USER_TO_BE_STORED] = {};
-size_t mobile_number_start_address[MAX_USER_TO_BE_STORED] = {};
-size_t password_length_address[MAX_USER_TO_BE_STORED] = {};
-size_t password_start_address[MAX_USER_TO_BE_STORED] = {};
-size_t is_in_out_time_configured_address[MAX_USER_TO_BE_STORED] = {};
-size_t in_time_start_address[MAX_USER_TO_BE_STORED] = {};
-size_t out_time_start_address[MAX_USER_TO_BE_STORED] = {};
+// Compute EEPROM addresses on-the-fly to save RAM
+#define USER_BLOCK_SIZE (1 /*is_pw*/ + MOBILE_NUMBER_LENGTH + 1 /*pw len*/ + 1 /*pw start*/ + PASSWORD_STORE_COUNT + 1 /*is_in_out*/ + IN_OUT_TIME_LEN_COUNT /*in*/ + IN_OUT_TIME_LEN_COUNT /*out*/ + 1 /*padding*/)
+
+static inline uint16_t eeprom_addr_user_base(uint8_t index) { return (uint16_t)(EEPROM_STARTING_ADDRESS + (uint16_t)index * (uint16_t)USER_BLOCK_SIZE); }
+static inline uint16_t eeprom_addr_is_pw(uint8_t index) { return eeprom_addr_user_base(index) + 0; }
+static inline uint16_t eeprom_addr_mobile(uint8_t index) { return eeprom_addr_is_pw(index) + 1; }
+static inline uint16_t eeprom_addr_pw_len(uint8_t index) { return eeprom_addr_mobile(index) + MOBILE_NUMBER_LENGTH + 1; }
+static inline uint16_t eeprom_addr_pw(uint8_t index) { return eeprom_addr_pw_len(index) + 1; }
+static inline uint16_t eeprom_addr_is_inout(uint8_t index) { return eeprom_addr_pw(index) + PASSWORD_STORE_COUNT + 1; }
+static inline uint16_t eeprom_addr_in_time(uint8_t index) { return eeprom_addr_is_inout(index) + 1; }
+static inline uint16_t eeprom_addr_out_time(uint8_t index) { return eeprom_addr_in_time(index) + IN_OUT_TIME_LEN_COUNT; }
+static inline uint16_t eeprom_addr_after_users(void) { return eeprom_addr_out_time(MAX_USER_TO_BE_STORED - 1) + IN_OUT_TIME_LEN_COUNT + 1; }
+
 size_t alpha_speed_start_address;
 size_t door_open_count_start_address;
 size_t buzzer_timeout_start_address;
 
-bool is_password_configured[MAX_USER_TO_BE_STORED] = {0, 0, 0, 0, 0};
+bool is_password_configured[MAX_USER_TO_BE_STORED] = {0};
 char mobile_number[MAX_USER_TO_BE_STORED][MOBILE_NUMBER_LENGTH];
 uint8_t password_length[MAX_USER_TO_BE_STORED] = {0};
 char password_value[MAX_USER_TO_BE_STORED][PASSWORD_STORE_COUNT];
@@ -543,7 +553,7 @@ HardwareSerial *port;
 void init_eeprom()
 {
   set_eeprom_addresses();
-  Serial.println("Address assigned");
+  SERIAL_PRINTLN("Address assigned");
   update_data_from_eeprom();
   // convert_mobile_numbers_to_string();
 }
@@ -551,15 +561,16 @@ void clear_eeprom()
 {
   for (int i = 0; i < EEPROM.length(); i++)
   {
-    Serial.print("clearing eeprom at address");
+    SERIAL_PRINT("clearing eeprom at address");
     Serial.println(i);
     EEPROM.write(i, 0);
   }
-  Serial.print("EEPROM Cleared!");
+  SERIAL_PRINT("EEPROM Cleared!");
 }
 void clear_eeprom_data()
 {
-  clearEepromArray(EEPROM_STARTING_ADDRESS, password_start_address[MAX_USER_TO_BE_STORED] + PASSWORD_STORE_COUNT);
+  // Use computed addresses instead of large address arrays
+  clearEepromArray(EEPROM_STARTING_ADDRESS, eeprom_addr_after_users());
 }
 void print_eeprom_data(HardwareSerial *serial1)
 {
@@ -614,25 +625,8 @@ void print_eeprom_data(HardwareSerial *serial1)
 
 void set_eeprom_addresses()
 {
-  for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
-  {
-    if (i)
-    {
-      is_pw_configured_address[i] = out_time_start_address[i - 1] + IN_OUT_TIME_LEN_COUNT + 1;
-    }
-    else
-    {
-      is_pw_configured_address[i] = EEPROM_STARTING_ADDRESS;
-    }
-    mobile_number_start_address[i] = is_pw_configured_address[i] + 1;
-    password_length_address[i] = mobile_number_start_address[i] + MOBILE_NUMBER_LENGTH + 1;
-    password_start_address[i] = password_length_address[i] + 1;
-
-    is_in_out_time_configured_address[i] = password_start_address[i] + PASSWORD_STORE_COUNT + 1;
-    in_time_start_address[i] = is_in_out_time_configured_address[i] + 1;
-    out_time_start_address[i] = in_time_start_address[i] + IN_OUT_TIME_LEN_COUNT;
-  }
-  alpha_speed_start_address = out_time_start_address[MAX_USER_TO_BE_STORED - 1] + IN_OUT_TIME_LEN_COUNT + 1;
+  // Derive global parameter addresses once; user addresses are computed on demand
+  alpha_speed_start_address = eeprom_addr_after_users();
   door_open_count_start_address = alpha_speed_start_address + ALPHA_SPEED_LEN_COUNT;
   buzzer_timeout_start_address = door_open_count_start_address + BUZZER_TIMEOUT_LEN_COUNT;
   /*
@@ -775,13 +769,13 @@ bool update_eeprom_data_at_index(uint8_t index, char *mobile_number_to_add, char
 
 bool check_if_password_is_configured(uint8_t index)
 {
-  bool is_configured = check_is_configured_byte_address(is_pw_configured_address[index]);
+  bool is_configured = check_is_configured_byte_address(eeprom_addr_is_pw(index));
   return is_configured;
 }
 
 uint8_t update_length_of_password(uint8_t index)
 {
-  password_length[index] = (uint8_t)EEPROM.read(password_length_address[index]);
+  password_length[index] = (uint8_t)EEPROM.read(eeprom_addr_pw_len(index));
   return password_length[index];
 }
 bool update_in_out_time_to_eeprom(uint8_t index, uint8_t _in_time_hour, uint8_t _in_time_minute,
@@ -792,22 +786,22 @@ bool update_in_out_time_to_eeprom(uint8_t index, uint8_t _in_time_hour, uint8_t 
   out_time_hour[index] = _out_time_hour;
   out_time_minute[index] = _out_time_minute;
   is_in_out_time_configured[index] = true;
-  EEPROM.write(in_time_start_address[index], _in_time_hour);
-  EEPROM.write(in_time_start_address[index] + 1, _in_time_minute);
-  EEPROM.write(out_time_start_address[index], _out_time_hour);
-  EEPROM.write(out_time_start_address[index] + 1, _out_time_minute);
-  configure_byte_address(is_in_out_time_configured_address[index]);
+  EEPROM.write(eeprom_addr_in_time(index), _in_time_hour);
+  EEPROM.write(eeprom_addr_in_time(index) + 1, _in_time_minute);
+  EEPROM.write(eeprom_addr_out_time(index), _out_time_hour);
+  EEPROM.write(eeprom_addr_out_time(index) + 1, _out_time_minute);
+  configure_byte_address(eeprom_addr_is_inout(index));
 }
 bool clear_in_out_time_to_eeprom(uint8_t index)
 {
-  clear_byte_address(is_in_out_time_configured_address[index]);
+  clear_byte_address(eeprom_addr_is_inout(index));
   return 1;
 }
 
 bool update_password_from_eeprom(uint8_t index)
 {
 start_again:
-  is_password_configured[index] = check_is_configured_byte_address(is_pw_configured_address[index]);
+  is_password_configured[index] = check_is_configured_byte_address(eeprom_addr_is_pw(index));
   if (is_password_configured[index])
   {
     if (update_length_of_password(index) > 0)
@@ -817,8 +811,8 @@ start_again:
         clear_eeprom();
         goto start_again;
       }
-      LoadFromEeprom(mobile_number_start_address[index], mobile_number[index], MOBILE_NUMBER_LENGTH);
-      LoadFromEeprom(password_start_address[index], password_value[index], password_length[index]);
+      LoadFromEeprom(eeprom_addr_mobile(index), mobile_number[index], MOBILE_NUMBER_LENGTH);
+      LoadFromEeprom(eeprom_addr_pw(index), password_value[index], password_length[index]);
       read_in_out_time_from_eeprom(index);
       return 1;
     }
@@ -833,11 +827,11 @@ start_again:
 }
 bool read_in_out_time_from_eeprom(uint8_t index)
 {
-  is_in_out_time_configured[index] = (bool)(EEPROM.read(is_in_out_time_configured_address[index]));
-  in_time_hour[index] = (uint8_t)EEPROM.read(in_time_start_address[index]);
-  in_time_minute[index] = (uint8_t)EEPROM.read(in_time_start_address[index] + 1);
-  out_time_hour[index] = (uint8_t)EEPROM.read(out_time_start_address[index]);
-  out_time_minute[index] = (uint8_t)EEPROM.read(out_time_start_address[index] + 1);
+  is_in_out_time_configured[index] = (bool)(EEPROM.read(eeprom_addr_is_inout(index)));
+  in_time_hour[index] = (uint8_t)EEPROM.read(eeprom_addr_in_time(index));
+  in_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_in_time(index) + 1);
+  out_time_hour[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index));
+  out_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index) + 1);
 }
 
 bool save_password_to_eeprom(uint8_t index, char *password_to_add, uint8_t len)
@@ -855,15 +849,15 @@ bool update_password_to_eeprom(uint8_t index)
   if (password_length[index] > 0)
   {
     // wdt_reset();
-    EEPROM.write(password_length_address[index], password_length[index]);
+    EEPROM.write(eeprom_addr_pw_len(index), password_length[index]);
     // wdt_reset();
-    WriteEepromArray(mobile_number_start_address[index], mobile_number[index], MOBILE_NUMBER_LENGTH);
+    WriteEepromArray(eeprom_addr_mobile(index), mobile_number[index], MOBILE_NUMBER_LENGTH);
     // wdt_reset();
-    WriteEepromArray(password_start_address[index], password_value[index], password_length[index]);
+    WriteEepromArray(eeprom_addr_pw(index), password_value[index], password_length[index]);
     // wdt_reset();
     is_password_configured[index] = 1;
     // wdt_reset();
-    configure_byte_address(is_pw_configured_address[index]);
+    configure_byte_address(eeprom_addr_is_pw(index));
     if (is_in_out_time_configured[index])
     {
       update_in_out_time_to_eeprom(index, in_time_hour[index], in_time_minute[index], out_time_hour[index], out_time_minute[index]);
@@ -880,17 +874,17 @@ void clear_password_in_eeprom(uint8_t index)
   memset(mobile_number[index], '\0', sizeof(mobile_number[index]));
   memset(password_value[index], '\0', sizeof(password_value[index]));
   // wdt_reset();
-  clear_byte_address(is_pw_configured_address[index]);
+  clear_byte_address(eeprom_addr_is_pw(index));
   // wdt_reset();
-  clear_byte_address(password_length_address[index]);
+  clear_byte_address(eeprom_addr_pw_len(index));
   // wdt_reset();
   // Serial.println(mobile_number_start_address[index]);
   // Serial.println(mobile_number_start_address[index]+MOBILE_NUMBER_LENGTH);
-  clearEepromArray(mobile_number_start_address[index], mobile_number_start_address[index] + MOBILE_NUMBER_LENGTH);
+  clearEepromArray(eeprom_addr_mobile(index), eeprom_addr_mobile(index) + MOBILE_NUMBER_LENGTH);
   // wdt_reset();
   // Serial.println(password_start_address[index]);
   // Serial.println(password_start_address[index]+PASSWORD_STORE_COUNT);
-  clearEepromArray(password_start_address[index], password_start_address[index] + PASSWORD_STORE_COUNT);
+  clearEepromArray(eeprom_addr_pw(index), eeprom_addr_pw(index) + PASSWORD_STORE_COUNT);
   clear_in_out_time_to_eeprom(index);
   // for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
   // {
@@ -1091,9 +1085,13 @@ LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 char password[15];
 char phone_number[10];
+
 uint8_t ph_len = 0;
 uint8_t pass_length = 0;
-bool does_user_exist[MAX_NUM_OF_USERS] = {true, false, false, false, false};
+#ifndef MAX_NUM_OF_USERS
+#define MAX_NUM_OF_USERS MAX_USER_TO_BE_STORED
+#endif
+bool does_user_exist[MAX_NUM_OF_USERS] = {0};
 
 extern bool check_if_password_is_configured(uint8_t index);
 uint8_t display_screen = 0;
@@ -1129,7 +1127,7 @@ const int ir_input_pin = 15;
 bool b_siren_on = 0;
 
 
-//#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
 
 
 bool is_door_aligned_by_ir()
@@ -1579,14 +1577,14 @@ void lcd_init()
   lcd.display(); // Turn on the display
   lcd.setCursor(1, 0);
   // lcd.print("BMS SECURITIES");
-  lcd.print("BMS SAFE (");
+  LCD_PRINT("BMS SAFE (");
   lcd.print(battery_percentage);
-  lcd.print("%)");
+  LCD_PRINT("%)");
   lcd.setCursor(0, 1);
   if (date < 10)
     lcd.print("0");
   lcd.print(date);
-  lcd.print("/");
+  LCD_PRINT("/");
 
   if (month < 10)
     lcd.print("0");
@@ -1600,12 +1598,12 @@ void lcd_init()
   //   lcd.print("0");
   // lcd.print(second);
 
-  lcd.print("  ");
+  LCD_PRINT("  ");
 
   if (hour < 10)
     lcd.print("0");
   lcd.print(hour);
-  lcd.print(":");
+  LCD_PRINT(":");
 
   if (minute < 10)
     lcd.print("0");
@@ -1623,16 +1621,16 @@ void lcd_init_screen()
   lcd.begin(16, 2);
   lcd.display(); // Turn on the display
   lcd.setCursor(1, 0);
-  lcd.print("   BMS SAFE");
+  LCD_PRINT("   BMS SAFE");
   lcd.setCursor(0, 1);
-  lcd.print("....WELCOME....");
+  LCD_PRINT("....WELCOME....");
   if (b_sd_card_not_initiated)
   {
     delay(1000);
     lcd.setCursor(0, 0);
-    lcd.print("  NO SD CARD ");
+    LCD_PRINT("  NO SD CARD ");
     lcd.setCursor(0, 1);
-    lcd.print("  ATTACHED!!");
+    LCD_PRINT("  ATTACHED!!");
   }
 
   /*
@@ -1940,9 +1938,9 @@ void check_if_door_access_is_allowed(uint8_t user_id)
   {
     lcd.clear();
     lcd.setCursor(5, 0);
-    lcd.print("Sensor");
+    LCD_PRINT("Sensor");
     lcd.setCursor(1, 1);
-    lcd.print("Not Aligned!!");
+    LCD_PRINT("Not Aligned!!");
     is_displayed = 0;
     delay(2000);
     b_command_close_door = 0;
@@ -1981,7 +1979,7 @@ void check_if_door_access_is_allowed(uint8_t user_id)
   {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Invld Password!!");
+    LCD_PRINT("Invld Password!!");
     is_displayed = 0;
     delay(1000);
     display_screen = LOCK_DOOR_STATE;
@@ -2024,7 +2022,7 @@ bool verify_dual_password(){
         // lcd.print("ENTER USER PW:");
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("USER PASS/BIO :");
+        LCD_PRINT("USER PASS/BIO :");
         pass_length = 0;
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
         memset(password, '\0', 15);
@@ -2038,7 +2036,7 @@ bool verify_dual_password(){
     Serial.println(user_id);
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Invld Password!!");
+    LCD_PRINT("Invld Password!!");
     is_displayed = 0;
     delay(1000);
     display_screen = MAIN;
@@ -2078,7 +2076,7 @@ bool verify_password()
     wdt_reset();
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Lock Reseted!!");
+    LCD_PRINT("Lock Reseted!!");
     is_displayed = 0;
     delay(1000);
     display_screen = LOCK_DOOR_STATE;
@@ -2098,7 +2096,7 @@ bool verify_password()
   {
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("Invld Password!!");
+    LCD_PRINT("Invld Password!!");
     is_displayed = 0;
     delay(1000);
     display_screen = LOCK_DOOR_STATE;
@@ -4149,7 +4147,7 @@ int8_t received_mobile_number_index1 = -1;
 
 #define MIN_CMD_LEN 3
 #define MAX_CMD_LEN 20
-#define MAX_PARA_LEN 30
+#define MAX_PARA_LEN 24
 #define CMD_SEPARATOR ','
 
 #define MSG_START_CHAR '&'
@@ -5815,6 +5813,8 @@ void setup()
   //  copy_data_from_sd_card_to_usb_flash_drive();
   // put your setup code here, to run once:
   // wdt_enable(WDTO_8S);
+  // Ensure master user (ID 1) exists by default
+  does_user_exist[0] = true;
 }
 bool test = 1;
 void loop()
