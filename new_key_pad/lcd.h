@@ -2,11 +2,11 @@
 #include "Arduino.h"
 #include "stdlib.h"
 #include "stdio.h"
-#define MAX_NUM_OF_USERS 8 // Number including master user
+#define MAX_NUM_OF_USERS 28 // Number including master user
 
 void lcd_task();
 void lcd_init();
-bool is_password_valid(char user_id, char *password, uint8_t pass_len);
+bool is_password_valid(uint8_t user_id, char *password, uint8_t pass_len);
 bool is_new_index();
 char get_pressed_character();
 
@@ -29,6 +29,7 @@ char get_pressed_character();
 #define BUZZER_SCREEN           16
 #define FINGERPRINT_SCREEN      17
 #define ADD_FINGERPRINT_SCREEN  18
+#define USER_ID_INPUT_SCREEN    19
 
 #define USER_LOCK_DOOR_STATE 30
 

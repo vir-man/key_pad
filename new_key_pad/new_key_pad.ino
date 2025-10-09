@@ -1996,8 +1996,11 @@ void check_if_door_access_is_allowed(uint8_t user_id)
 uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
 int8_t first_user_verified =0;
 bool verify_dual_password(){
-  user_id = (uint8_t)(password[0]) - 48;
-  if ((first_user_verified || user_id == 1) && is_password_valid(password[0], &password[1], pass_length - 1))
+  uint8_t user_id_length = 0;
+  user_id = parse_user_id_from_password(password, pass_length, &user_id_length);
+  if (user_id == 0) return 0; // Invalid user ID format
+  
+  if ((first_user_verified || user_id == 1) && is_password_valid(user_id, &password[user_id_length], pass_length - user_id_length))
   {
     if(first_user_verified){
       if(user_id == 1){
@@ -2006,7 +2009,7 @@ bool verify_dual_password(){
         is_displayed = 0;
       }else{
         // TODO: Unlock the safe
-        user_id = (uint8_t)(password[0]) - 48;
+        // user_id already set by parse_user_id_from_password
         Serial.print("USER ID -- >");
         Serial.println(user_id);
         // call funtion
@@ -2026,7 +2029,7 @@ bool verify_dual_password(){
         pass_length = 0;
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
         memset(password, '\0', 15);
-        user_id = -1;
+        user_id = 0; // Invalid user ID
       
     }
   }
@@ -2083,10 +2086,13 @@ bool verify_password()
     pass_length = 0;
     return 1;
   }
-  if (is_password_valid(password[0], &password[1], pass_length - 1))
+  uint8_t user_id_length = 0;
+  user_id = parse_user_id_from_password(password, pass_length, &user_id_length);
+  if (user_id == 0) return 0; // Invalid user ID format
+  
+  if (is_password_valid(user_id, &password[user_id_length], pass_length - user_id_length))
   {
     // TODO: Unlock the safe
-    user_id = (uint8_t)(password[0]) - 48;
     Serial.print("USER ID -- >");
     Serial.println(user_id);
     // call funtion
@@ -2278,10 +2284,12 @@ void input_otp_fsm()
 
 // uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
 void fingerprint_manager_fsm(){
+  int8_t fingerprint_id; // Declare once at function level
   switch(fingerprint_manager_fsm_state){
     case  FINGERPRINT_FSM_STATE_DEFAULT:
-        user_id = getFingerprintID();
-        if (user_id != -1 && user_id <= MAX_NUM_OF_USERS ){
+        fingerprint_id = getFingerprintID();
+        if (fingerprint_id != -1 && fingerprint_id <= MAX_NUM_OF_USERS ){
+          user_id = (uint8_t)fingerprint_id;
           if((user_id - 1) == 0){
             fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
             is_displayed = 1;
@@ -2304,14 +2312,15 @@ void fingerprint_manager_fsm(){
       lcd.print("MASTER FINGERPRNT");
       lcd.setCursor(0, 1);
       lcd.print("NOT MATCHED!");
-      user_id = -1;
+      user_id = 0; // Invalid user ID
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
       is_displayed = 0;
       break;
     case FINGERPRINT_FSM_STATE_ENTER_USER:
-      user_id = getFingerprintID();
-      if (user_id != -1 && user_id <= MAX_NUM_OF_USERS){
+      fingerprint_id = getFingerprintID();
+      if (fingerprint_id != -1 && fingerprint_id <= MAX_NUM_OF_USERS){
+        user_id = (uint8_t)fingerprint_id;
         if( check_if_password_is_configured(user_id - 1) && (user_id -1 )!=0){
           is_displayed = 1;
           lcd.clear();
@@ -2334,7 +2343,7 @@ void fingerprint_manager_fsm(){
       lcd.print("USER FINGERPRNT");
       lcd.setCursor(0, 1);
       lcd.print("NOT MATCHED!");
-      user_id = -1;
+      user_id = 0; // Invalid user ID
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
       first_user_verified = 0;
@@ -2377,9 +2386,12 @@ void password_input_fsm()
       break;
     case USER_PASSWORD:
       lcd.setCursor(0, 0);
-      lcd.print("USER-");
+      LCD_PRINT("USER-");
+      if (user_id < 10) {
+        lcd.print("0");
+      }
       lcd.print(user_id);
-      lcd.print(" PW ");
+      LCD_PRINT(" PW ");
       // lcd.setCursor(8, 0);
       // lcd.print(user_id);
       break;
@@ -2436,7 +2448,7 @@ void password_input_fsm()
         is_displayed = 0;
         pass_length = 0;
         memset(password, '\0', 15);
-        user_id = -1;
+        user_id = 0; // Invalid user ID
         first_user_verified = 0;
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
         break;
@@ -3431,26 +3443,70 @@ int8_t getFingerprintEnroll(int id)
   return true;
 }
 uint8_t temp_user_id = 0;
-void fingerprint_input_fsm()
+
+// Helper function to parse user ID from password input
+uint8_t parse_user_id_from_password(char* password, uint8_t pass_length, uint8_t* user_id_length)
+{
+  if (pass_length < 1) return 0;
+  
+  // Check if first two characters form a valid 2-digit user ID (10-28)
+  if (pass_length >= 2 && password[0] >= '1' && password[0] <= '2' && password[1] >= '0' && password[1] <= '8')
+  {
+    uint8_t user_id = (password[0] - '0') * 10 + (password[1] - '0');
+    if (user_id >= 10 && user_id <= 28)
+    {
+      *user_id_length = 2;
+      return user_id;
+    }
+  }
+  
+  // Check if first two characters form a valid 2-digit user ID with leading zero (01-09)
+  if (pass_length >= 2 && password[0] == '0' && password[1] >= '1' && password[1] <= '9')
+  {
+    uint8_t user_id = password[1] - '0'; // Extract the second digit as the actual user ID
+    *user_id_length = 2;
+    return user_id;
+  }
+  
+  // Check if first character is a valid 1-digit user ID (1-9)
+  if (password[0] >= '1' && password[0] <= '9')
+  {
+    uint8_t user_id = password[0] - '0';
+    *user_id_length = 1;
+    return user_id;
+  }
+  
+  return 0; // Invalid user ID
+}
+
+// User ID input variables
+char user_id_input[3] = {'\0'};  // Max 2 digits + null terminator
+uint8_t user_id_input_length = 0;
+uint8_t user_id_input_screen_type = 0;  // 1=ADD_USER, 2=REMOVE_USER, 3=ADD_FINGERPRINT
+
+void user_id_input_fsm()
 {
   if (!is_displayed)
   {
-    uint8_t cursor_index = 0;
     is_displayed = 1;
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("ADD FINGERPRINT");
-    lcd.setCursor(cursor_index, 1);
-    //lcd.print("SELECT:");
-    // cursor_index = 7;
-    for (int i = 0; i < MAX_NUM_OF_USERS; ++i)
+    switch (user_id_input_screen_type)
     {
-      if (check_if_password_is_configured(i))
-      {
-        lcd.print(String(i + 1));
-        lcd.setCursor(cursor_index += 2, 1);
-      }
+      case 1:
+        LCD_PRINT("CREATE USER");
+        break;
+      case 2:
+        LCD_PRINT("REMOVE USER");
+        break;
+      case 3:
+        LCD_PRINT("ADD FINGERPRINT");
+        break;
     }
+    lcd.setCursor(0, 1);
+    LCD_PRINT("USER ID: ");
+    user_id_input_length = 0;
+    memset(user_id_input, '\0', sizeof(user_id_input));
   }
   else
   {
@@ -3459,28 +3515,119 @@ void fingerprint_input_fsm()
       is_new_key = 0;
       if (key == CANCEL)
       {
-        pass_length = 0;
+        user_id_input_length = 0;
+        memset(user_id_input, '\0', sizeof(user_id_input));
         is_displayed = 0;
         display_screen = MASTER_INPUT_STATE;
-        // break;
       }
-      else
+      else if (key == ENTER)
       {
-        uint8_t temp_key = uint8_t(key) - 48;
-        if (temp_key <= MAX_NUM_OF_USERS)
+        if (user_id_input_length > 0)
         {
-          if (check_if_password_is_configured(temp_key - 1))
+          uint8_t user_id = atoi(user_id_input);
+          Serial.print("User ID entered: ");
+          Serial.println(user_id);
+          Serial.print("Input length: ");
+          Serial.println(user_id_input_length);
+          if (user_id >= 1 && user_id <= MAX_NUM_OF_USERS)
           {
-            temp_user_id = temp_key;
+            switch (user_id_input_screen_type)
+            {
+              case 1: // ADD_USER
+                if (!check_if_password_is_configured(user_id - 1) && user_id != 1)
+                {
+                  temp_user_id = user_id;
+                  is_displayed = 0;
+                  display_screen = MASTER_ADD_USER_MOBILE_NUMBER;
+                }
+                else
+                {
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER ALREADY");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("EXISTS!!");
+                  delay(2000);
+                  is_displayed = 0;
+                }
+                break;
+              case 2: // REMOVE_USER
+                if (check_if_password_is_configured(user_id - 1) && user_id != 1)
+                {
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("PLEASE WAIT...!!");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("DELETING USER-");
+                  lcd.print(user_id);
+                  deleteFingerprint(user_id);
+                  clear_password_in_eeprom(user_id - 1);
+                  my_delay(3);
+                  lcd.clear();
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER-");
+                  lcd.print(user_id);
+                  LCD_PRINT(" DELETED!!");
+                  jump_to_master_main();
+                }
+                else
+                {
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER NOT");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("FOUND!!");
+                  delay(2000);
+                  is_displayed = 0;
+                }
+                break;
+              case 3: // ADD_FINGERPRINT
+                if (check_if_password_is_configured(user_id - 1))
+                {
+                  temp_user_id = user_id;
+                  is_displayed = 0;
+                  display_screen = ADD_FINGERPRINT_SCREEN;
+                }
+                else
+                {
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER NOT");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("CONFIGURED!!");
+                  delay(2000);
+                  is_displayed = 0;
+                }
+                break;
+            }
+          }
+          else
+          {
+            lcd.setCursor(0, 0);
+            LCD_PRINT("INVALID USER");
+            lcd.setCursor(0, 1);
+            LCD_PRINT("ID (1-28)!!");
+            delay(2000);
             is_displayed = 0;
-            display_screen = ADD_FINGERPRINT_SCREEN;
-            // break;
           }
         }
+        else
+        {
+          lcd.setCursor(0, 0);
+          LCD_PRINT("ENTER USER");
+          lcd.setCursor(0, 1);
+          LCD_PRINT("ID FIRST!!");
+          delay(2000);
+          is_displayed = 0;
+        }
+      }
+      else if (key >= '0' && key <= '9' && user_id_input_length < 2)
+      {
+        user_id_input[user_id_input_length] = key;
+        user_id_input_length++;
+        lcd.setCursor(8 + user_id_input_length - 1, 1);
+        lcd.print(key);
       }
     }
   }
 }
+
 void fingerprint_register_fsm()
 {
   if (getFingerprintEnroll(temp_user_id))
@@ -3788,128 +3935,17 @@ void lcd_task()
     }
     break;
   case MASTER_ADD_USER:
-    if (!is_displayed)
-    {
-      uint8_t cursor_index = 0;
-      is_displayed = 1;
-      lcd.clear();
-      lcd.setCursor(2, 0);
-      lcd.print("CREATE  USER");
-      lcd.setCursor(cursor_index, 1);
-      //lcd.print("SELECT: ");
-      // cursor_index = 8;
-      for (int i = 1; i < MAX_NUM_OF_USERS; ++i)
-      {
-        if (!check_if_password_is_configured(i))
-        {
-          lcd.print(String(i + 1));
-          lcd.setCursor(cursor_index += 2, 1);
-        }
-      }
-    }
-    else
-    {
-      if (is_new_key)
-      {
-        is_new_key = 0;
-        if (key == CANCEL)
-        {
-          pass_length = 0;
-          is_displayed = 0;
-          display_screen = MASTER_INPUT_STATE;
-          break;
-        }
-        else
-        {
-          uint8_t temp_key = uint8_t(key) - 48;
-          if (temp_key <= MAX_NUM_OF_USERS && temp_key != 1)
-          {
-            if (!check_if_password_is_configured(temp_key - 1))
-            {
-              temp_user_id = temp_key;
-              is_displayed = 0;
-              display_screen = MASTER_ADD_USER_MOBILE_NUMBER;
-              break;
-            }
-          }
-        }
-      }
-    }
+    user_id_input_screen_type = 1;  // ADD_USER
+    is_displayed = 0;
+    display_screen = USER_ID_INPUT_SCREEN;
     break;
   case MASTER_ADD_USER_MOBILE_NUMBER:
     mobile_number_input_fsm(temp_user_id);
     break;
   case MASTER_REMOVE_USER:
-    if (!is_displayed)
-    {
-      uint8_t cursor_index = 0;
-      is_displayed = 1;
-      lcd.clear();
-      // lcd.setCursor(0, 0);
-      // lcd.clear();
-      lcd.setCursor(2, 0);
-
-      lcd.print("REMOVE USER");
-
-      lcd.setCursor(cursor_index, 1);
-      //lcd.print("SELECT: ");
-      // cursor_index = 8;
-      lcd.setCursor(cursor_index, 1);
-      for (int i = 1; i < MAX_NUM_OF_USERS; ++i)
-      {
-        if (check_if_password_is_configured(i))
-        {
-          lcd.print(String(i + 1));
-          lcd.setCursor(cursor_index += 2, 1);
-        }
-      }
-    }
-    else
-    {
-      if (is_new_key)
-      {
-        is_new_key = 0;
-        if (key == CANCEL)
-        {
-          pass_length = 0;
-          is_displayed = 0;
-          display_screen = MASTER_INPUT_STATE;
-          break;
-        }
-        else
-        {
-          uint8_t temp_key = uint8_t(key) - 48;
-          if (temp_key <= MAX_NUM_OF_USERS && temp_key != 1)
-          {
-            if (check_if_password_is_configured(temp_key - 1))
-            {
-              lcd.setCursor(0, 0);
-              lcd.print("PLEASE WAIT...!!");
-              lcd.setCursor(0, 1);
-              lcd.print("DELETING USER-");
-              lcd.print(temp_key);
-              deleteFingerprint(temp_key);
-              clear_password_in_eeprom(temp_key - 1);
-              my_delay(3);
-              lcd.clear();
-              // lcd.setCursor(0, 0);
-              // lcd.print("DEFAULT PASSWORD");
-              lcd.setCursor(0, 0);
-              lcd.print("USER-");
-              lcd.print(temp_key);
-              lcd.print(" DELETED!!");
-              // lcd.setCursor(0, 1);
-              // lcd.print("USER REMOVED : ");
-              // lcd.setCursor(14, 1);
-              // lcd.print(temp_key);
-
-              jump_to_master_main();
-              // TODO: remove user and display the user number has been removed
-            }
-          }
-        }
-      }
-    }
+    user_id_input_screen_type = 2;  // REMOVE_USER
+    is_displayed = 0;
+    display_screen = USER_ID_INPUT_SCREEN;
     break;
 
   case MASTER_PASSWORD:
@@ -3936,10 +3972,16 @@ void lcd_task()
     break;
 
   case FINGERPRINT_SCREEN:
-    fingerprint_input_fsm();
+    user_id_input_screen_type = 3;  // ADD_FINGERPRINT
+    is_displayed = 0;
+    display_screen = USER_ID_INPUT_SCREEN;
     break;
   case ADD_FINGERPRINT_SCREEN:
     fingerprint_register_fsm();
+    break;
+
+  case USER_ID_INPUT_SCREEN:
+    user_id_input_fsm();
     break;
 
   case INPUT_MOBILE_NUMBER:
@@ -4114,14 +4156,16 @@ void lcd_task()
   }
 }
 
-bool is_password_valid(char _user_id, char *password, uint8_t pass_len)
+bool is_password_valid(uint8_t _user_id, char *password, uint8_t pass_len)
 {
-  uint8_t user1_id = (uint8_t)(_user_id);
-  if (pass_len != password_length[(user1_id - 49)])
+  if (_user_id < 1 || _user_id > MAX_NUM_OF_USERS) return 0;
+  
+  uint8_t user_index = _user_id - 1; // Convert to 0-based index
+  if (pass_len != password_length[user_index])
   {
     return 0;
   }
-  bool status = is_password_matched((user1_id - 49), password, pass_len);
+  bool status = is_password_matched(user_index, password, pass_len);
   Serial.print("user_id: ");
   Serial.println(_user_id);
   Serial.print("password: ");
