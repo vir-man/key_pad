@@ -1132,10 +1132,10 @@ bool b_siren_on = 0;
 
 bool is_door_aligned_by_ir()
 {
-//#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-  return 1;
-//#else
-//  return !current_ir_value;
+// #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+//   return 1;
+// #else
+return !current_ir_value;
 //#endif
 }
 
@@ -1543,17 +1543,17 @@ void dc_motor_on(int direction)
 
 bool is_door_open()
 {
-#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-  return 1;
-#else
+// #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+//   return 1;
+// #else
   return !door_sensor_state[0];
 #endif
 }
 bool is_door_close()
 {
-#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-  return 1;
-#else
+// #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+//   return 1;
+// #else
   return !door_sensor_state[1]; // !door_sensor_state[1];
 #endif
 }
