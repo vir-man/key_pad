@@ -55,8 +55,8 @@ bool b_alpha_speed_updated = 0;
 uint16_t alpha_counter = 0;
 /***** Buzzer Vars [START] *****/
 
-// notes in the melody:
-int melody[] = {
+// notes in the melody (store in flash to save SRAM)
+const uint16_t melody[] PROGMEM = {
     NOTE_C4, NOTE_G3, NOTE_G3, NOTE_A3, NOTE_G3, 0, NOTE_B3, NOTE_C4};
 
 // note durations: 4 = quarter note, 8 = eighth note, etc.:
@@ -1275,10 +1275,10 @@ void gpio_task()
     if (e.bit.EVENT == KEY_JUST_PRESSED)
     {
       prss_time = millis();
-      Serial.println(" pressed");
+      Serial.println(F(" pressed"));
       if (lcd_state == LCD_STATE_ON)
       {
-        tone(buzzer_pin, melody[0], 200);
+        tone(buzzer_pin, pgm_read_word(&melody[0]), 200);
         delay(100);
         noTone(buzzer_pin);
       }
@@ -1286,10 +1286,17 @@ void gpio_task()
     else if (e.bit.EVENT == KEY_JUST_RELEASED)
     {
       time_difference = millis() - prss_time;
-      // Serial.print("Difference ");
+      // Serial.print(F("Difference "));
       // Serial.println(time_difference);
-      // Serial.println(" released");
+      // Serial.println(F(" released"));
+      if (time_difference < 5)
+      {
+        // debounce: ignore very short presses
+        continue;
+      }
       key = (char)e.bit.KEY;
+      Serial.print(F("key: "));
+      Serial.println(key);
       // if (lcd_state == LCD_STATE_OFF)
       // {
       //   // return;
@@ -1307,7 +1314,7 @@ void gpio_task()
         break;
       case MUTE:
         // toggle the mute setting
-        Serial.println("MUTE PRESSED!");
+        Serial.println(F("MUTE PRESSED!"));
         b_buzzer_on = 0;
         door_open_time = millis();
         break;
@@ -1317,13 +1324,14 @@ void gpio_task()
         // is_new_key = 1;
         is_displayed = 0;
         b_command_close_door = 1;
+        Serial.println(F("4442"));
         b_error_in_door_close = 0;
         display_screen = LOCK_DOOR_STATE;
         break;
       default:
         if (lcd_state == LCD_STATE_ON)
         {
-          Serial.println("pressed default case");
+          Serial.println(F("pressed default case"));
           rels_time = millis();
           is_new_key = 1;
           break;
@@ -1434,8 +1442,8 @@ void init_dc_motor()
   // put your setup code here, to run once:
   pinMode(dc_motor_pin[0], OUTPUT);
   pinMode(dc_motor_pin[1], OUTPUT);
-  pinMode(sensor_pin[0], INPUT);
-  pinMode(sensor_pin[1], INPUT);
+  pinMode(sensor_pin[0], INPUT_PULLUP);
+  pinMode(sensor_pin[1], INPUT_PULLUP);
 //  pinMode(em_lock_control_pin, OUTPUT);
 //  digitalWrite(em_lock_control_pin, 1);
 
@@ -1463,23 +1471,23 @@ void dc_motor_task()
       {
         if (is_door_open())
         {
-          Serial.println("DOOR OPEN");
+          Serial.println(F("DOOR OPEN"));
           // b_command_close_door = 1;
         }
         else
         {
-          Serial.println("DOOR OPEN SENSOR UNHIT");
+          Serial.println(F("DOOR OPEN SENSOR UNHIT"));
         }
       }
       else if (i == 1)
       {
         if (is_door_close())
         {
-          Serial.println("DOOR CLOSE");
+          Serial.println(F("DOOR CLOSE"));
         }
         else
         {
-          Serial.println("DOOR CLOSE SENSOR UNHIT");
+          Serial.println(F("DOOR CLOSE SENSOR UNHIT"));
         }
       }
     }
@@ -1529,13 +1537,13 @@ void dc_motor_on(int direction)
 //    digitalWrite(em_lock_control_pin, 0);
 //    delay(300);
 //    digitalWrite(em_lock_control_pin, 1);
-     Serial.println("Moving CW");
+     Serial.println(F("Moving CW"));
      digitalWrite(dc_motor_pin[0], 0);
      digitalWrite(dc_motor_pin[1], 1);
   }
   else if (direction == CCW)
   {
-     Serial.println("Moving CCW");
+     Serial.println(F("Moving CCW"));
      digitalWrite(dc_motor_pin[0], 1);
      digitalWrite(dc_motor_pin[1], 0);
   }
@@ -5736,7 +5744,7 @@ void buzzer_task()
     //   // to calculate the note duration, take one second divided by the note type.
     //   // e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
     //   int noteDuration = 1000 / noteDurations[thisNote];
-    //   tone(45, melody[thisNote], noteDuration);
+    //   tone(45, pgm_read_word(&melody[thisNote]), noteDuration);
 
     //   // to distinguish the notes, set a minimum time between them.
     //   // the note's duration + 30% seems to work well:
@@ -5750,7 +5758,7 @@ void buzzer_task()
       if (b_sub_buzzer_on)
       {
         b_sub_buzzer_on = 0;
-        tone(buzzer_pin, melody[1], 200);
+        tone(buzzer_pin, pgm_read_word(&melody[1]), 200);
       }
       else
       {
