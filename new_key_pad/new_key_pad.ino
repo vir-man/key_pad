@@ -1133,9 +1133,9 @@ bool b_siren_on = 0;
 bool is_door_aligned_by_ir()
 {
 // #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-//   return 1;
+  return 1;
 // #else
-return !current_ir_value;
+// return !current_ir_value;
 //#endif
 }
 
@@ -1547,7 +1547,7 @@ bool is_door_open()
 //   return 1;
 // #else
   return !door_sensor_state[0];
-#endif
+// #endif
 }
 bool is_door_close()
 {
@@ -1555,7 +1555,7 @@ bool is_door_close()
 //   return 1;
 // #else
   return !door_sensor_state[1]; // !door_sensor_state[1];
-#endif
+// #endif
 }
 
 void open_door()
@@ -3553,6 +3553,7 @@ void user_id_input_fsm()
               case 2: // REMOVE_USER
                 if (check_if_password_is_configured(user_id - 1) && user_id != 1)
                 {
+                  lcd.clear();
                   lcd.setCursor(0, 0);
                   LCD_PRINT("PLEASE WAIT...!!");
                   lcd.setCursor(0, 1);
@@ -3570,6 +3571,7 @@ void user_id_input_fsm()
                 }
                 else
                 {
+                  lcd.clear();
                   lcd.setCursor(0, 0);
                   LCD_PRINT("USER NOT");
                   lcd.setCursor(0, 1);
@@ -3578,7 +3580,7 @@ void user_id_input_fsm()
                   is_displayed = 0;
                 }
                 break;
-              case 3: // ADD_FINGERPRINT
+                case 3: // ADD_FINGERPRINT
                 if (check_if_password_is_configured(user_id - 1))
                 {
                   temp_user_id = user_id;
@@ -3587,6 +3589,7 @@ void user_id_input_fsm()
                 }
                 else
                 {
+                  lcd.clear();
                   lcd.setCursor(0, 0);
                   LCD_PRINT("USER NOT");
                   lcd.setCursor(0, 1);
@@ -3595,19 +3598,20 @@ void user_id_input_fsm()
                   is_displayed = 0;
                 }
                 break;
+              }
+            }
+            else
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              LCD_PRINT("INVALID USER");
+              lcd.setCursor(0, 1);
+              LCD_PRINT("ID (1-28)!!");
+              delay(2000);
+              is_displayed = 0;
             }
           }
           else
-          {
-            lcd.setCursor(0, 0);
-            LCD_PRINT("INVALID USER");
-            lcd.setCursor(0, 1);
-            LCD_PRINT("ID (1-28)!!");
-            delay(2000);
-            is_displayed = 0;
-          }
-        }
-        else
         {
           lcd.setCursor(0, 0);
           LCD_PRINT("ENTER USER");
@@ -3761,6 +3765,7 @@ void lcd_task()
       b_error_in_door_open = 0;
 
       b_command_close_door = 1;
+      Serial.println("4443");
       b_error_in_door_close = 0;
       display_screen = LOCK_DOOR_STATE;
       break;
@@ -3844,6 +3849,7 @@ void lcd_task()
         // open_door();
         is_displayed = 0;
         b_command_close_door = 1;
+        Serial.println("4445");
         b_error_in_door_close = 0;
         display_screen = LOCK_DOOR_STATE;
         break;
@@ -4048,6 +4054,7 @@ void lcd_task()
       b_error_in_door_open = 0;
 
       b_command_close_door = 1;
+      Serial.println("4446");
       b_error_in_door_close = 0;
       display_screen = LOCK_DOOR_STATE;
       break;
@@ -4133,6 +4140,7 @@ void lcd_task()
         is_displayed = 0;
         display_screen = LOCK_DOOR_STATE;
         b_command_close_door = 1;
+        Serial.println("4447");
         break;
       case '1':
         is_displayed = 0;
@@ -4618,6 +4626,7 @@ uint8_t api_lock_door()
       {
         is_displayed = 0;
         b_command_close_door = 1;
+        Serial.println("4441");
         b_error_in_door_close = 0;
         display_screen = LOCK_DOOR_STATE;
         SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_LOCK_CMD_ACCEPTED);
