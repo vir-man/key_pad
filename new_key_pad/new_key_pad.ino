@@ -1133,9 +1133,9 @@ bool b_siren_on = 0;
 bool is_door_aligned_by_ir()
 {
 // #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-  return 1;
+//  return 1;
 // #else
-// return !current_ir_value;
+return !current_ir_value;
 //#endif
 }
 
