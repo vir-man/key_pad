@@ -363,6 +363,9 @@ bool b_backup_in_progress = 0;
 bool b_backup_complete = 0;
 
 bool b_flash_drive_attached = 0;
+
+// File header string stored in PROGMEM to save RAM
+const char file_start_str[] PROGMEM = "SR.    USER      DATE         TIME      REMARKS\n---------------------------------------------\n";
 //..............................................................................................................................
 // Leave the default jumper settings for the baud rate (9600) on the CH376, the library will set it up the chosen speed(HW serial only)
 Ch376msc flashDrive(Serial2, 115200); // Ch376 object with hardware Serial1 on arduino mega baudrate: 9600, 19200, 57600, 115200
@@ -401,16 +404,17 @@ void copy_data_from_sd_card_to_usb_flash_drive()
   //  static File dataFile;// = SD.open("BMS-LOG1.TXT", FILE_WRITE);
   bool b_flash_drive_file_available = 0;
   String input_string_from_sd_card;
-  char input_string_char_array[100];
+  char input_string_char_array[80];  // Reduced from 100 to save 20 bytes RAM
   // Serial.println("Coming 1");
 
   SERIAL_PRINT("File opened!");
   File dataFile = SD.open("BMS-LOG1.TXT");
-  char file_start_str[] = "SR.    USER      DATE         TIME      REMARKS\n---------------------------------------------\n";
   //  flashDrive.init();
   flashDrive.setFileName("BMS-LOG1.TXT");
   flashDrive.openFile();
-  flashDrive.writeFile(file_start_str, strlen(file_start_str));
+  char pgm_buffer[80];
+  strcpy_P(pgm_buffer, file_start_str);
+  flashDrive.writeFile(pgm_buffer, strlen(pgm_buffer));
   if (dataFile)
   {
     uint8_t cursor_index = 0;
@@ -1091,7 +1095,7 @@ uint8_t pass_length = 0;
 #ifndef MAX_NUM_OF_USERS
 #define MAX_NUM_OF_USERS MAX_USER_TO_BE_STORED
 #endif
-bool does_user_exist[MAX_NUM_OF_USERS] = {0};
+// bool does_user_exist[MAX_NUM_OF_USERS] = {0};  // Removed: redundant with is_password_configured, saves 18 bytes RAM
 
 extern bool check_if_password_is_configured(uint8_t index);
 uint8_t display_screen = 0;
@@ -1101,7 +1105,7 @@ extern bool b_command_close_door;
 /** LCD VARS [END] ***/
 
 uint32_t prss_time, rels_time, prev_rels_time, time_difference;
-char chararr[100];
+char chararr[50];  // Reduced from 100 to save 50 bytes RAM (appears unused)
 uint16_t lcd_press_counter = 0;
 unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
 unsigned long debounceDelay = 100;  // the debounce time; increase if the output flickers
@@ -1410,6 +1414,7 @@ bool b_send_close_door_message = 0;
 #define GUN_POINT_CALL 4
 #define TEMP_ALARM_MSG 5
 #define VIBRATION_ALARM_MSG 6
+#define AUTH_FAIL_MSG 7
 
 uint8_t type_list[10];
 uint8_t message_details[10];
@@ -1703,6 +1708,32 @@ void vibration_sensor_fsm()
 {
   // @TODO:
 }
+
+#define USER_NO_REGISTERED 1              //"User is not registered!"
+#define PW_LENGH_IS_NOT_IN_LIMIT 2        //"Password length is greater than 15 or less than 4"
+#define PW_CHANGED 3                      //"Password Changed!!"
+#define PW_IS_NO_VALID 4                  //"Password is not valid!!"
+#define PARA_MISSING 5                    //"Parameters are missing!!"
+#define USER_REMOVED 6                    //"User Removed!"
+#define USER_CREATED 7                    //"User Created!"
+#define USER_IS_ALREADY_REGISTERD 8       //"User is already registered"
+#define MOBILE_NUM_LEN_IS_INVALID 9       //"Mobile number length is less or more"
+#define PW_IS_NOT_CONFIGURED 10           //"Password is not configured!"
+#define MOBILE_NUMBER_IS_NOT_REGISTERD 11 //"Mobile Number is not registered"
+#define MASTER_RESET_DONE 12
+#define PARA_INVALID 13
+#define IN_OUT_TIME_UPDATED 14
+#define NO_ACCESS_ALLOWED 15
+#define DOOR_UNLOCK_CMD_ACCEPTED 16
+#define DOOR_LOCK_CMD_ACCEPTED 17
+#define USER_CREATED_ACK 18
+#define OTP_MATCHED 19
+#define OTP_NOT_MATCHED 20
+
+#define RECEIVED_MOBILE_NUMBER_INDEX (MAX_NUM_OF_USERS + 1)
+#define MASTER_USER_ID 0
+
+
 
 #define GPA_DO_NOTHING 0
 #define GPA_SEND_MESSAGE 1
@@ -2003,6 +2034,7 @@ void check_if_door_access_is_allowed(uint8_t user_id)
 
 uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
 int8_t first_user_verified =0;
+uint8_t auth_fail_count = 0;  // Track consecutive authentication failures on MAIN screen
 bool verify_dual_password(){
   uint8_t user_id_length = 0;
   user_id = parse_user_id_from_password(password, pass_length, &user_id_length);
@@ -2010,6 +2042,8 @@ bool verify_dual_password(){
   
   if ((first_user_verified || user_id == 1) && is_password_valid(user_id, &password[user_id_length], pass_length - user_id_length))
   {
+    // Authentication successful - reset failure counter
+    auth_fail_count = 0;
     if(first_user_verified){
       if(user_id == 1){
         Serial.println("MASTER_INPUT_STATE");
@@ -2043,6 +2077,8 @@ bool verify_dual_password(){
   }
   else
   {
+    // Authentication failed - increment counter
+    auth_fail_count++;
     Serial.print("USER ID is ");
     Serial.println(user_id);
     lcd.clear();
@@ -2053,6 +2089,14 @@ bool verify_dual_password(){
     display_screen = MAIN;
     pass_length = 0;
     first_user_verified=0;
+    
+    // If 2nd authentication failure, send SMS to master user
+    if (auth_fail_count >= 2) {
+      Serial.println("2nd Authentication Failure - Sending SMS");
+      update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+      auth_fail_count = 0;  // Reset counter after sending message
+    }
+    
     return 0;
   }
 }
@@ -2314,6 +2358,8 @@ void fingerprint_manager_fsm(){
         }
       break;
     case FINGERPRINT_FSM_STATE_WRONG_MASTER:
+      // Authentication failed - increment counter
+      auth_fail_count++;
       is_displayed = 1;
       lcd.clear();
       lcd.setCursor(0, 0);
@@ -2324,6 +2370,13 @@ void fingerprint_manager_fsm(){
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
       is_displayed = 0;
+      
+      // If 2nd authentication failure, send SMS to master user
+      if (auth_fail_count >= 2) {
+        Serial.println("2nd Authentication Failure (Fingerprint) - Sending SMS");
+        update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+        auth_fail_count = 0;  // Reset counter after sending message
+      }
       break;
     case FINGERPRINT_FSM_STATE_ENTER_USER:
       fingerprint_id = getFingerprintID();
@@ -2345,6 +2398,8 @@ void fingerprint_manager_fsm(){
       }  
       break;
     case FINGERPRINT_FSM_STATE_WRONG_USER:
+      // Authentication failed - increment counter
+      auth_fail_count++;
       is_displayed = 1;
       lcd.clear();
       lcd.setCursor(0, 0);
@@ -2356,8 +2411,17 @@ void fingerprint_manager_fsm(){
       delay(2000);
       first_user_verified = 0;
       is_displayed = 0;
+      
+      // If 2nd authentication failure, send SMS to master user
+      if (auth_fail_count >= 2) {
+        Serial.println("2nd Authentication Failure (Fingerprint) - Sending SMS");
+        update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+        auth_fail_count = 0;  // Reset counter after sending message
+      }
       break;
     case FINGERPRINT_FSM_STATE_DOOR_UNLOCKED:
+      // Authentication successful - reset failure counter
+      auth_fail_count = 0;
       Serial.print("USER ID Found at ID ");
       Serial.println(user_id);
       check_if_door_access_is_allowed(user_id);
@@ -2459,6 +2523,10 @@ void password_input_fsm()
         user_id = 0; // Invalid user ID
         first_user_verified = 0;
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+        // Reset auth failure counter when canceling input on MAIN screen
+        if (display_screen == MAIN) {
+          auth_fail_count = 0;
+        }
         break;
       case ENTER:
         if (pass_length >= 4 && pass_length <= 16)
@@ -3654,29 +3722,7 @@ void fingerprint_register_fsm()
   }
 }
 
-#define USER_NO_REGISTERED 1              //"User is not registered!"
-#define PW_LENGH_IS_NOT_IN_LIMIT 2        //"Password length is greater than 15 or less than 4"
-#define PW_CHANGED 3                      //"Password Changed!!"
-#define PW_IS_NO_VALID 4                  //"Password is not valid!!"
-#define PARA_MISSING 5                    //"Parameters are missing!!"
-#define USER_REMOVED 6                    //"User Removed!"
-#define USER_CREATED 7                    //"User Created!"
-#define USER_IS_ALREADY_REGISTERD 8       //"User is already registered"
-#define MOBILE_NUM_LEN_IS_INVALID 9       //"Mobile number length is less or more"
-#define PW_IS_NOT_CONFIGURED 10           //"Password is not configured!"
-#define MOBILE_NUMBER_IS_NOT_REGISTERD 11 //"Mobile Number is not registered"
-#define MASTER_RESET_DONE 12
-#define PARA_INVALID 13
-#define IN_OUT_TIME_UPDATED 14
-#define NO_ACCESS_ALLOWED 15
-#define DOOR_UNLOCK_CMD_ACCEPTED 16
-#define DOOR_LOCK_CMD_ACCEPTED 17
-#define USER_CREATED_ACK 18
-#define OTP_MATCHED 19
-#define OTP_NOT_MATCHED 20
 
-#define RECEIVED_MOBILE_NUMBER_INDEX (MAX_NUM_OF_USERS + 1)
-#define MASTER_USER_ID 0
 void update_queue(uint8_t message_type, uint8_t message)
 {
   if (queue_index < 10)
@@ -3699,6 +3745,7 @@ void lcd_task()
     if (millis() - display_on_timer > display_on_timeout)
     {
       pass_length = 0;
+      auth_fail_count = 0;  // Reset auth failure counter on screen timeout
       lcd_power_off();
       // lcd_state = LCD_STATE_OFF;
     }
@@ -4199,15 +4246,15 @@ char call;
 String a, b;
 uint8_t i = 0;
 
-char char_array[200];
+char char_array[100];  // Reduced from 200 to save 100 bytes RAM
 // uint8_t received_mobile_number[10];
 char received_mobile_number_in_char[11];
-char received_mnic[10];
+// char received_mnic[10];  // Removed unused buffer to save 10 bytes RAM
 int8_t received_mobile_number_index1 = -1;
 
 #define MIN_CMD_LEN 3
 #define MAX_CMD_LEN 20
-#define MAX_PARA_LEN 24
+#define MAX_PARA_LEN 20  // Reduced from 24 to save 20 bytes RAM (para array: 5*20=100 vs 5*24=120)
 #define CMD_SEPARATOR ','
 
 #define MSG_START_CHAR '&'
@@ -4336,6 +4383,16 @@ void gsm_housekeeping_task()
         Serial.println(message_details[queue_index - 1]);
         // delay(1000);
         SendMessageTempAlarmMessage(message_details[queue_index - 1], char_generated_otp);
+        queue_index--;
+      }
+      break;
+    case AUTH_FAIL_MSG:
+      if (millis() - call_start_time > 10000)
+      {
+        call_start_time = millis();
+        Serial.println("Authentication Failure Message Sent!!");
+        Serial.println(message_details[queue_index - 1]);
+        SendMessageAuthFail(message_details[queue_index - 1]);
         queue_index--;
       }
       break;
@@ -5479,6 +5536,32 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   Serial.println("Gun Point Message Sent!!");
   // ReceiveMessage();
 }
+void SendMessageAuthFail(uint8_t mobile_number_index)
+{
+  String mbn;
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(100);                   // Delay of 100 milli seconds
+  if (mobile_number_index == RECEIVED_MOBILE_NUMBER_INDEX)
+  {
+    mbn = String(received_mobile_number_in_char);
+  }
+  else
+  {
+    mbn = String(mobile_number[mobile_number_index]).substring(0, 10);
+  }
+  Serial.println(mbn);
+  SIM7600.println("AT+CMGS=\"+91" + mbn + "\"\r"); // Replace x with mobile number
+
+  delay(100);
+  SIM7600.print("Authentication Failed!\n");
+  SIM7600.print("2 consecutive authentication attempts failed on BMS System.\n");
+  print_date_time_to_gsm();
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(100);
+  Serial.println("Auth Fail Message Sent!!");
+  // ReceiveMessage();
+}
 void MakeCallWithNumber(uint8_t mobile_number_index)
 {
   String mbn;
@@ -5874,8 +5957,7 @@ void setup()
   //  copy_data_from_sd_card_to_usb_flash_drive();
   // put your setup code here, to run once:
   // wdt_enable(WDTO_8S);
-  // Ensure master user (ID 1) exists by default
-  does_user_exist[0] = true;
+  // Master user (ID 1) existence is tracked by is_password_configured[0]
 }
 bool test = 1;
 void loop()
