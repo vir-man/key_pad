@@ -1127,7 +1127,7 @@ const int siren_pin[2] = {27, 28};
 bool current_ir_value = 0;
 bool previous_ir_value = 0;
 
-const int ir_input_pin = 15;
+const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
@@ -1425,7 +1425,7 @@ int dc_motor_pin[2] = {2, 5};
 int sensor_pin[2] = {48, 47};
 int em_lock_control_pin = 6;
 
-int ir_rx_pin = 15;
+int ir_rx_pin = A0;
 
 #define CW 0
 #define CCW 1
@@ -2034,7 +2034,7 @@ void check_if_door_access_is_allowed(uint8_t user_id)
 
 uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
 int8_t first_user_verified =0;
-uint8_t auth_fail_count = 0;  // Track consecutive authentication failures on MAIN screen
+uint8_t user_bio_auth_fail_count = 0;
 bool verify_dual_password(){
   uint8_t user_id_length = 0;
   user_id = parse_user_id_from_password(password, pass_length, &user_id_length);
@@ -2042,13 +2042,12 @@ bool verify_dual_password(){
   
   if ((first_user_verified || user_id == 1) && is_password_valid(user_id, &password[user_id_length], pass_length - user_id_length))
   {
-    // Authentication successful - reset failure counter
-    auth_fail_count = 0;
     if(first_user_verified){
       if(user_id == 1){
         Serial.println("MASTER_INPUT_STATE");
         display_screen = MASTER_INPUT_STATE;
         is_displayed = 0;
+        user_bio_auth_fail_count = 0; // Reset on successful authentication
       }else{
         // TODO: Unlock the safe
         // user_id already set by parse_user_id_from_password
@@ -2057,6 +2056,7 @@ bool verify_dual_password(){
         // call funtion
         check_if_door_access_is_allowed(user_id);
         first_user_verified = 0;
+        user_bio_auth_fail_count = 0; // Reset on successful authentication
       }
     }else if(user_id == 1){ 
       // if condition is not required as it should be true by default as main if has two conditions only
@@ -2072,13 +2072,12 @@ bool verify_dual_password(){
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
         memset(password, '\0', 15);
         user_id = 0; // Invalid user ID
+        user_bio_auth_fail_count = 0; // Reset when entering USER PASS/BIO screen
       
     }
   }
   else
   {
-    // Authentication failed - increment counter
-    auth_fail_count++;
     Serial.print("USER ID is ");
     Serial.println(user_id);
     lcd.clear();
@@ -2086,15 +2085,33 @@ bool verify_dual_password(){
     LCD_PRINT("Invld Password!!");
     is_displayed = 0;
     delay(1000);
-    display_screen = MAIN;
-    pass_length = 0;
-    first_user_verified=0;
     
-    // If 2nd authentication failure, send SMS to master user
-    if (auth_fail_count >= 2) {
-      Serial.println("2nd Authentication Failure - Sending SMS");
-      update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
-      auth_fail_count = 0;  // Reset counter after sending message
+    // Check if this is a failure on USER PASS/BIO screen
+    if (first_user_verified == 1) {
+      user_bio_auth_fail_count++;
+      if (user_bio_auth_fail_count >= 1) {
+        // Send alert to master user (index 0)
+        update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+        user_bio_auth_fail_count = 0; // Reset after sending alert
+        // Return to MAIN screen after 2nd failure
+        display_screen = MAIN;
+        pass_length = 0;
+        first_user_verified = 0;
+        memset(password, '\0', 15);
+      } else {
+        // Stay on USER PASS/BIO screen for retry
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        LCD_PRINT("USER PASS/BIO :");
+        pass_length = 0;
+        memset(password, '\0', 15);
+        is_displayed = 1;
+      }
+    } else {
+      // Return to MAIN screen if failure on MAIN screen
+      display_screen = MAIN;
+      pass_length = 0;
+      first_user_verified = 0;
     }
     
     return 0;
@@ -2351,6 +2368,7 @@ void fingerprint_manager_fsm(){
             // lcd.setCursor(0, 1);
             // lcd.print("PLEASE !!");
             first_user_verified = 1;
+            user_bio_auth_fail_count = 0; // Reset when entering USER PASS/BIO screen
             delay(2000);
           }else{
             fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_MASTER;
@@ -2358,8 +2376,6 @@ void fingerprint_manager_fsm(){
         }
       break;
     case FINGERPRINT_FSM_STATE_WRONG_MASTER:
-      // Authentication failed - increment counter
-      auth_fail_count++;
       is_displayed = 1;
       lcd.clear();
       lcd.setCursor(0, 0);
@@ -2370,13 +2386,6 @@ void fingerprint_manager_fsm(){
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
       is_displayed = 0;
-      
-      // If 2nd authentication failure, send SMS to master user
-      if (auth_fail_count >= 2) {
-        Serial.println("2nd Authentication Failure (Fingerprint) - Sending SMS");
-        update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
-        auth_fail_count = 0;  // Reset counter after sending message
-      }
       break;
     case FINGERPRINT_FSM_STATE_ENTER_USER:
       fingerprint_id = getFingerprintID();
@@ -2392,14 +2401,13 @@ void fingerprint_manager_fsm(){
           delay(2000);
           is_displayed = 0;
           fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DOOR_UNLOCKED;
+          user_bio_auth_fail_count = 0; // Reset on successful authentication
         }else{
           fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_USER;
         }
       }  
       break;
     case FINGERPRINT_FSM_STATE_WRONG_USER:
-      // Authentication failed - increment counter
-      auth_fail_count++;
       is_displayed = 1;
       lcd.clear();
       lcd.setCursor(0, 0);
@@ -2407,26 +2415,34 @@ void fingerprint_manager_fsm(){
       lcd.setCursor(0, 1);
       lcd.print("NOT MATCHED!");
       user_id = 0; // Invalid user ID
-      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
-      first_user_verified = 0;
-      is_displayed = 0;
       
-      // If 2nd authentication failure, send SMS to master user
-      if (auth_fail_count >= 2) {
-        Serial.println("2nd Authentication Failure (Fingerprint) - Sending SMS");
+      // Track failure and send alert if needed
+      user_bio_auth_fail_count++;
+      if (user_bio_auth_fail_count >= 2) {
+        // Send alert to master user (index 0)
         update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
-        auth_fail_count = 0;  // Reset counter after sending message
+        user_bio_auth_fail_count = 0; // Reset after sending alert
+        // Return to MAIN screen after 2nd failure
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+        first_user_verified = 0;
+        display_screen = MAIN;
+      } else {
+        // Stay on USER PASS/BIO screen for retry
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("USER PASS/BIO :");
+        is_displayed = 1;
       }
       break;
     case FINGERPRINT_FSM_STATE_DOOR_UNLOCKED:
-      // Authentication successful - reset failure counter
-      auth_fail_count = 0;
       Serial.print("USER ID Found at ID ");
       Serial.println(user_id);
       check_if_door_access_is_allowed(user_id);
       first_user_verified = 0;
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+      user_bio_auth_fail_count = 0; // Reset on successful authentication
       break;
   }
   /*
@@ -2523,10 +2539,7 @@ void password_input_fsm()
         user_id = 0; // Invalid user ID
         first_user_verified = 0;
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
-        // Reset auth failure counter when canceling input on MAIN screen
-        if (display_screen == MAIN) {
-          auth_fail_count = 0;
-        }
+        user_bio_auth_fail_count = 0; // Reset when canceling from USER PASS/BIO screen
         break;
       case ENTER:
         if (pass_length >= 4 && pass_length <= 16)
@@ -3745,8 +3758,9 @@ void lcd_task()
     if (millis() - display_on_timer > display_on_timeout)
     {
       pass_length = 0;
-      auth_fail_count = 0;  // Reset auth failure counter on screen timeout
       lcd_power_off();
+      user_bio_auth_fail_count = 0; // Reset on MAIN screen timeout
+      first_user_verified = 0;
       // lcd_state = LCD_STATE_OFF;
     }
     if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered)
@@ -4386,16 +4400,6 @@ void gsm_housekeeping_task()
         queue_index--;
       }
       break;
-    case AUTH_FAIL_MSG:
-      if (millis() - call_start_time > 10000)
-      {
-        call_start_time = millis();
-        Serial.println("Authentication Failure Message Sent!!");
-        Serial.println(message_details[queue_index - 1]);
-        SendMessageAuthFail(message_details[queue_index - 1]);
-        queue_index--;
-      }
-      break;
     case GUN_POINT_CALL:
       if (millis() - call_start_time > call_timeout)
       {
@@ -4407,6 +4411,17 @@ void gsm_housekeeping_task()
         // SendMessageGunPointMessage(str_mobile_number[message_details[queue_index - 1]], otp);
         queue_index--;
         break;
+      }
+      break;
+    case AUTH_FAIL_MSG:
+      if (millis() - call_start_time > 10000)
+      {
+        call_start_time = millis();
+        Serial.println("Auth Fail Message Sent!!");
+        Serial.println(message_details[queue_index - 1]);
+        // delay(1000);
+        SendMessageAuthFail(message_details[queue_index - 1]);
+        queue_index--;
       }
       break;
     default:
@@ -5536,32 +5551,6 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   Serial.println("Gun Point Message Sent!!");
   // ReceiveMessage();
 }
-void SendMessageAuthFail(uint8_t mobile_number_index)
-{
-  String mbn;
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(100);                   // Delay of 100 milli seconds
-  if (mobile_number_index == RECEIVED_MOBILE_NUMBER_INDEX)
-  {
-    mbn = String(received_mobile_number_in_char);
-  }
-  else
-  {
-    mbn = String(mobile_number[mobile_number_index]).substring(0, 10);
-  }
-  Serial.println(mbn);
-  SIM7600.println("AT+CMGS=\"+91" + mbn + "\"\r"); // Replace x with mobile number
-
-  delay(100);
-  SIM7600.print("Authentication Failed!\n");
-  SIM7600.print("2 consecutive authentication attempts failed on BMS System.\n");
-  print_date_time_to_gsm();
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(100);
-  Serial.println("Auth Fail Message Sent!!");
-  // ReceiveMessage();
-}
 void MakeCallWithNumber(uint8_t mobile_number_index)
 {
   String mbn;
@@ -5579,6 +5568,34 @@ void MakeCallWithNumber(uint8_t mobile_number_index)
   SIM7600.println("ATD+91" + mbn + ";"); // ATDxxxxxxxxxx; -- watch out here for semicolon at the end!!
   DEBUG_PRINTLN("Calling  ");            // print response over serial port
   delay(100);
+}
+void SendMessageAuthFail(uint8_t mobile_number_index)
+{
+  String mbn;
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  if (mobile_number_index == RECEIVED_MOBILE_NUMBER_INDEX)
+  {
+    mbn = String(received_mobile_number_in_char);
+  }
+  else
+  {
+    mbn = String(mobile_number[mobile_number_index]).substring(0, 10);
+  }
+  Serial.println(mbn);
+  SIM7600.println("AT+CMGS=\"+91" + mbn + "\"\r"); // Replace x with mobile number
+
+  delay(100);
+  SIM7600.print("Authentication Failed!\n");
+  SIM7600.print("The BMS System has detected 2 consecutive failed authentication attempts on USER PASS/BIO screen.\n");
+  print_date_time_to_gsm();
+  SIM7600.println();
+
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(100);
+  Serial.println("Auth Fail Message Sent!!");
+  // ReceiveMessage();
 }
 
 void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
