@@ -1131,16 +1131,16 @@ const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
-//#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
 
 
 bool is_door_aligned_by_ir()
 {
-// #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-//  return 1;
-// #else
-return !current_ir_value;
-//#endif
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+ return 1;
+#else
+  return !current_ir_value;
+#endif
 }
 
 void siren_on(uint8_t i)
@@ -1556,19 +1556,19 @@ void dc_motor_on(int direction)
 
 bool is_door_open()
 {
-// #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-//   return 1;
-// #else
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+  return 1;
+#else
   return !door_sensor_state[0];
-// #endif
+#endif
 }
 bool is_door_close()
 {
-// #ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
-//   return 1;
-// #else
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+  return 1;
+#else
   return !door_sensor_state[1]; // !door_sensor_state[1];
-// #endif
+#endif
 }
 
 void open_door()
