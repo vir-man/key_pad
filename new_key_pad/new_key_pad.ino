@@ -2084,6 +2084,9 @@ bool verify_dual_password(){
     lcd.setCursor(0, 0);
     LCD_PRINT("Invld Password!!");
     is_displayed = 0;
+    
+    // Send alert for invalid password attempt
+    update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
     delay(1000);
     
     // Check if this is a failure on USER PASS/BIO screen
@@ -2383,6 +2386,10 @@ void fingerprint_manager_fsm(){
       lcd.setCursor(0, 1);
       lcd.print("NOT MATCHED!");
       user_id = 0; // Invalid user ID
+      
+      // Send alert for invalid master fingerprint attempt
+      update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+      
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
       is_displayed = 0;
@@ -2402,11 +2409,16 @@ void fingerprint_manager_fsm(){
           is_displayed = 0;
           fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DOOR_UNLOCKED;
           user_bio_auth_fail_count = 0; // Reset on successful authentication
+          break;
         }else{
           fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_USER;
+          break;
         }
-      }  
-      break;
+      }else if(fingerprint_id != -1){
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_USER;
+        break;
+      }
+       break;
     case FINGERPRINT_FSM_STATE_WRONG_USER:
       is_displayed = 1;
       lcd.clear();
@@ -2415,10 +2427,22 @@ void fingerprint_manager_fsm(){
       lcd.setCursor(0, 1);
       lcd.print("NOT MATCHED!");
       user_id = 0; // Invalid user ID
-      delay(2000);
+      
+      // Track fingerprint failures and send alert
+      user_bio_auth_fail_count = user_bio_auth_fail_count + 2;
+      // if (user_bio_auth_fail_count >= 2) {
+      //   // Send alert to master user
+      //   update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+      //   user_bio_auth_fail_count = 0;
+      //   fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+      //   first_user_verified = 0;
+      //   display_screen = MAIN;
+      //   is_displayed = 0;
+      // }
+      // delay(2000);
       
       // Track failure and send alert if needed
-      user_bio_auth_fail_count++;
+      // user_bio_auth_fail_count++;
       if (user_bio_auth_fail_count >= 2) {
         // Send alert to master user (index 0)
         update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
@@ -2427,6 +2451,8 @@ void fingerprint_manager_fsm(){
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
         first_user_verified = 0;
         display_screen = MAIN;
+        is_displayed = 0;
+        delay(2000);
       } else {
         // Stay on USER PASS/BIO screen for retry
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
@@ -3301,13 +3327,13 @@ int8_t getFingerprintID()
     return -1;
   // case FINGERPRINT_PACKETRECIEVEERR:
   //   Serial.println("Communication error");
-  //   return p;
+  //   return -1;
   // case FINGERPRINT_IMAGEFAIL:
   //   Serial.println("Imaging error");
-  //   return p;
+  //   return -1;
   default:
-    Serial.println("Unknown error");
-    return -1;
+    // Serial.println("Unknown error");
+    return  -1;
   }
 
   // OK success!
@@ -3347,7 +3373,7 @@ int8_t getFingerprintID()
   else if (p == FINGERPRINT_NOTFOUND)
   {
     Serial.println("Did not find a match");
-    return -1;
+    return MAX_NUM_OF_USERS + 2;
   }
   else
   {
