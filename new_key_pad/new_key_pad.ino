@@ -3663,6 +3663,7 @@ void user_id_input_fsm()
                   LCD_PRINT("EXISTS!!");
                   delay(2000);
                   is_displayed = 0;
+                  display_screen = MASTER_INPUT_STATE;
                 }
                 break;
               case 2: // REMOVE_USER
@@ -3683,6 +3684,7 @@ void user_id_input_fsm()
                   lcd.print(user_id);
                   LCD_PRINT(" DELETED!!");
                   jump_to_master_main();
+                  display_screen = MASTER_INPUT_STATE;
                 }
                 else
                 {
@@ -3693,6 +3695,7 @@ void user_id_input_fsm()
                   LCD_PRINT("FOUND!!");
                   delay(2000);
                   is_displayed = 0;
+                  display_screen = MASTER_INPUT_STATE;
                 }
                 break;
                 case 3: // ADD_FINGERPRINT
@@ -3711,6 +3714,7 @@ void user_id_input_fsm()
                   LCD_PRINT("CONFIGURED!!");
                   delay(2000);
                   is_displayed = 0;
+                  display_screen = MASTER_INPUT_STATE;
                 }
                 break;
               }
@@ -3724,6 +3728,7 @@ void user_id_input_fsm()
               LCD_PRINT("ID (1-28)!!");
               delay(2000);
               is_displayed = 0;
+              display_screen = MASTER_INPUT_STATE;
             }
           }
           else
@@ -3734,6 +3739,7 @@ void user_id_input_fsm()
           LCD_PRINT("ID FIRST!!");
           delay(2000);
           is_displayed = 0;
+          display_screen = MASTER_INPUT_STATE;
         }
       }
       else if (key >= '0' && key <= '9' && user_id_input_length < 2)
