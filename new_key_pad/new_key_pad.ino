@@ -2048,6 +2048,7 @@ bool verify_dual_password(){
         display_screen = MASTER_INPUT_STATE;
         is_displayed = 0;
         user_bio_auth_fail_count = 0; // Reset on successful authentication
+        first_user_verified = 0; // reset first user verified flag as it's just open master menu
       }else{
         // TODO: Unlock the safe
         // user_id already set by parse_user_id_from_password
