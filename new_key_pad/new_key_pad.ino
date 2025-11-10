@@ -2377,6 +2377,8 @@ void fingerprint_manager_fsm(){
           }else{
             fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_MASTER;
           }
+        }else if(fingerprint_id != -1){
+            fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_MASTER;
         }
       break;
     case FINGERPRINT_FSM_STATE_WRONG_MASTER:
