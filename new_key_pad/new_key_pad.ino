@@ -2958,7 +2958,7 @@ void mobile_number_input_fsm(uint8_t id)
                 input_mobile_number_count = 0;
                 input_mobile_number_length = 0;
                 is_displayed = 0;
-                display_screen = MASTER_MAIN;
+                display_screen = MASTER_INPUT_STATE;
                 break;
                 // jump_to_master_main();
               }
