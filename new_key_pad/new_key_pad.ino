@@ -5931,63 +5931,63 @@ void setup()
 
   Serial.begin(115200);
   SIM7600.begin(115200); // Setting the baud rate of GSM Module
-  finger_print_sensor_init();
-  wdt_disable();
-  pinMode(LCD_GND, OUTPUT);
-  pinMode(LCD_VCC, OUTPUT);
-  rtc_begin();
-  gpio_init();
-  lcd_power_on();
-  lcd_init();
-  // wdt_enable(WDTO_8S);
-  //  digitalWrite(LCD_GND,0);
-  //  digitalWrite(LCD_VCC,0);
+  // finger_print_sensor_init();
+  // wdt_disable();
+  // pinMode(LCD_GND, OUTPUT);
+  // pinMode(LCD_VCC, OUTPUT);
   // rtc_begin();
-  sd_init();
+  // gpio_init();
+  // lcd_power_on();
+  // lcd_init();
+  // // wdt_enable(WDTO_8S);
+  // //  digitalWrite(LCD_GND,0);
+  // //  digitalWrite(LCD_VCC,0);
+  // // rtc_begin();
+  // sd_init();
 
-  // lcd_power_off();
+  // // lcd_power_off();
 
-  temp_sen_init();
-  Serial.println("Started");
-  init_eeprom();
-  // clear_eeprom();
-  // return;
-  port = &Serial;
-  // print_eeprom_data(port);
-  Serial.println("EEPROM Write Started");
-  // convert_mobile_numbers_to_string();
-  // convert_mobile_numbers_to_string();
-  // convert_mobile_numbers_to_string();
-  // return;
-  // write_buzzer_timeout_to_eeprom(15);
-  // write_door_open_count_to_eeprom(10);
-  // write_alpha_speed_to_eeprom(20);
-  // return;
-  // update_eeprom_data_at_index(4, _mobile_number, _password, 15);
-  // update_eeprom_data_at_index(3, _mobile_number, _password, 15);
-  // update_eeprom_data_at_index(0, _mobile_number, _password, 4);
-  // update_eeprom_data_at_index(1, _mobile_number, _password, 4);
-  // update_eeprom_data_at_index(4, _mobile_number, _password, 15);
-  // print_eeprom_data(port);
-  // update_in_out_time_to_eeprom(2,10,15,20,15);
-  // update_in_out_time_to_eeprom(1,12,0,22,18);
-  // update_in_out_time_to_eeprom(0,14,0,23,16);
-  // print_eeprom_data(port);
-  // clear_password_in_eeprom(4);
-  // update_eeprom_data_at_index(0, _mobile_number, _password, 15);
-  // update_data_from_eeprom();
-  print_eeprom_data(port);
-  // clear_password_in_eeprom(1);
-  // clear_password_in_eeprom(4);
-  // print_eeprom_data(port);
-  // return;
-  // write_door_open_count_to_eeprom(10);
-  // write_door_open_count_to_eeprom(15);
-  Serial.println("EEPROM Write Complete");
-  init_dc_motor();
+  // temp_sen_init();
+  // Serial.println("Started");
+  // init_eeprom();
+  // // clear_eeprom();
+  // // return;
+  // port = &Serial;
+  // // print_eeprom_data(port);
+  // Serial.println("EEPROM Write Started");
+  // // convert_mobile_numbers_to_string();
+  // // convert_mobile_numbers_to_string();
+  // // convert_mobile_numbers_to_string();
+  // // return;
+  // // write_buzzer_timeout_to_eeprom(15);
+  // // write_door_open_count_to_eeprom(10);
+  // // write_alpha_speed_to_eeprom(20);
+  // // return;
+  // // update_eeprom_data_at_index(4, _mobile_number, _password, 15);
+  // // update_eeprom_data_at_index(3, _mobile_number, _password, 15);
+  // // update_eeprom_data_at_index(0, _mobile_number, _password, 4);
+  // // update_eeprom_data_at_index(1, _mobile_number, _password, 4);
+  // // update_eeprom_data_at_index(4, _mobile_number, _password, 15);
+  // // print_eeprom_data(port);
+  // // update_in_out_time_to_eeprom(2,10,15,20,15);
+  // // update_in_out_time_to_eeprom(1,12,0,22,18);
+  // // update_in_out_time_to_eeprom(0,14,0,23,16);
+  // // print_eeprom_data(port);
+  // // clear_password_in_eeprom(4);
+  // // update_eeprom_data_at_index(0, _mobile_number, _password, 15);
+  // // update_data_from_eeprom();
+  // // print_eeprom_data(port);
+  // // clear_password_in_eeprom(1);
+  // // clear_password_in_eeprom(4);
+  // // print_eeprom_data(port);
+  // // return;
+  // // write_door_open_count_to_eeprom(10);
+  // // write_door_open_count_to_eeprom(15);
+  // Serial.println("EEPROM Write Complete");
+  // init_dc_motor();
   gsm_module_init();
-  init_flash_drive();
-  lcd_init_screen();
+  // init_flash_drive();
+  // lcd_init_screen();
   //   uint8_t generated_otp[6] = {
   //     random(0, 9),
   //     random(0, 9),
@@ -6003,9 +6003,9 @@ void setup()
   // }
   // Serial.print("Generated OTP : ");
   // Serial.println(String(char_generated_otp));
-  generate_random_otp();
-  flash_drive_task();
-  display_on_timer = millis();
+  // generate_random_otp();
+  // flash_drive_task();
+  // display_on_timer = millis();
   //  copy_data_from_sd_card_to_usb_flash_drive();
   // put your setup code here, to run once:
   // wdt_enable(WDTO_8S);
@@ -6014,17 +6014,17 @@ void setup()
 bool test = 1;
 void loop()
 {
-  wdt_reset();
-  if (is_door_close())
-    temp_task();
-  // put your main code here, to run repeatedly:
-  rtc_task();
-  lcd_task();
-  gpio_task();
-  dc_motor_task();
+  // wdt_reset();
+  // if (is_door_close())
+  //   temp_task();
+  // // put your main code here, to run repeatedly:
+  // rtc_task();
+  // lcd_task();
+  // gpio_task();
+  // dc_motor_task();
   gsm_module_task();
-  gsm_housekeeping_task();
-  gun_point_activation_fsm();
-  flash_drive_task();
-  buzzer_task();
+  // gsm_housekeeping_task();
+  // gun_point_activation_fsm();
+  // flash_drive_task();
+  // buzzer_task();
 }
