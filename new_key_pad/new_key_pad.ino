@@ -1171,7 +1171,7 @@ void gpio_init()
   // pinMode(14,OUTPUT);
   // digitalWrite(14,HIGH);
   siren_off(siren_pin[0]);
-  // siren_off(siren_pin[1]);
+  siren_off(siren_pin[1]);
   on_prev_state = on_current_state = digitalRead(on_switch_pin);
   battery_analog_input = analogRead(analogInPin);
   battery_percentage = map(battery_analog_input, 0, 900, 0, 100);
@@ -1794,6 +1794,7 @@ void temp_task()
         vibration_started = 0;
         b_vibration_alarm_triggered = 1;
         siren_on(siren_pin[0]);
+        siren_on(siren_pin[1]);
         generate_random_otp();
         vibration_change_counter = 0;
         Serial.println("Vibration alarm Triggered!!------------------------------>");
@@ -1829,6 +1830,7 @@ void temp_task()
           generate_random_otp();
           lcd_power_off();
           siren_on(siren_pin[0]);
+          siren_on(siren_pin[1]);
           // lcd_state = LCD_STATE_OFF;
           if (gpa_state == GPA_DO_NOTHING)
           {
@@ -2315,7 +2317,7 @@ void input_otp_fsm()
           b_temperature_alarm_triggerd = 0;
           b_otp_not_matched = 0;
           siren_off(siren_pin[0]);
-          // siren_off(siren_pin[1]);
+          siren_off(siren_pin[1]);
           display_screen = MAIN;
           otp_length = 0;
           memset(otp, '\0', sizeof(otp));
@@ -4882,7 +4884,7 @@ void api_verify_otp()
       b_temperature_alarm_triggerd = 0;
       b_otp_not_matched = 0;
       siren_off(siren_pin[0]);
-      // siren_off(siren_pin[1]);
+      siren_off(siren_pin[1]);
       display_screen = MAIN;
       otp_length = 0;
       memset(otp, '\0', sizeof(otp));
