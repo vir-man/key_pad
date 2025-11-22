@@ -36,6 +36,7 @@ static char prev_key = '\0';
 static uint8_t times_prssd = 0;
 static char get_character = '\0';
 static unsigned long prev_rels_time_for_alpha = 0;
+static unsigned long rels_time = 0;  // Release time for alpha input (like original)
 
 // Constructor
 UIStateMachine::UIStateMachine(LiquidCrystal* lcdInstance, Adafruit_Keypad* keypadInstance, MainSystem* mainSys)
@@ -95,12 +96,29 @@ UIStateMachine::~UIStateMachine() {
 
 // Initialize
 bool UIStateMachine::initialize() {
-  if (lcd == nullptr || keypad == nullptr || mainSystem == nullptr) {
+  Serial.println(F("UIStateMachine::initialize() - Starting"));
+  
+  if (lcd == nullptr) {
+    Serial.println(F("ERROR: LCD is nullptr!"));
     return false;
   }
   
+  if (keypad == nullptr) {
+    Serial.println(F("ERROR: Keypad is nullptr!"));
+    return false;
+  }
+  
+  if (mainSystem == nullptr) {
+    Serial.println(F("ERROR: MainSystem is nullptr!"));
+    return false;
+  }
+  
+  Serial.println(F("All pointers valid - initializing LCD"));
+  
   // Initialize LCD
   lcdInitScreen();
+  
+  Serial.println(F("Initializing keypad"));
   
   // Initialize keypad
   keypad->begin();
@@ -108,21 +126,34 @@ bool UIStateMachine::initialize() {
   // Set initial state
   currentState = MAIN;
   isDisplayed = false;
+  isNum = true;  // Start in NUM mode
+  displayOnTimer = millis();
+  rels_time = 0;
+  prev_rels_time_for_alpha = 0;
+  
+  Serial.print(F("[UIStateMachine] Initialized successfully. Initial state: "));
+  Serial.print((int)currentState);
+  Serial.print(F(", isNum="));
+  Serial.print(isNum);
+  Serial.print(F(", passLength="));
+  Serial.println(passLength);
   
   return true;
 }
 
 // Main task function
 void UIStateMachine::task() {
-  // Handle keypad input
+  // CRITICAL: Handle keypad input FIRST (must be called every loop)
+  // This calls keypad->tick() and processes keypad events
   handleKeypadInput();
   
-  // Update display based on current state
+  // Update display based on current state (this calls passwordInputFSM for MAIN state)
   updateDisplay();
   
   // Handle timeout
   if (currentState == MAIN) {
     if (millis() - displayOnTimer > SystemConfig::DISPLAY_ON_TIMEOUT) {
+      Serial.println(F("Main screen timeout - powering off LCD"));
       passLength = 0;
       lcdPowerOff();
       userBioAuthFailCount = 0;
@@ -174,11 +205,28 @@ void UIStateMachine::setCurrentUserID(uint8_t userID) {
 
 // Handle keypad input
 void UIStateMachine::handleKeypadInput() {
+  // CRITICAL: Must call tick() first to update keypad state (like original code)
+  if (keypad == nullptr) {
+    Serial.println(F("[Keypad] ERROR: keypad is nullptr!"));
+    return;
+  }
+  
+  keypad->tick();
+  
+  int available_count = 0;
   while (keypad->available()) {
     keypadEvent e = keypad->read();
+    available_count++;
+    if (available_count == 1) {
+      Serial.println(F("[Keypad] Events available, processing..."));
+    }
+    
+    Serial.print(F("Keypad event: "));
+    Serial.print((char)e.bit.KEY);
     
     if (e.bit.EVENT == KEY_JUST_PRESSED) {
       pressTime = millis();
+      Serial.println(F(" PRESSED"));
       if (lcdState == LCD_STATE_ON) {
         // Play a short beep for keypress (use tone() directly like original code)
         tone(SystemConfig::BUZZER_PIN, pgm_read_word(&melody[0]), 200);
@@ -188,20 +236,35 @@ void UIStateMachine::handleKeypadInput() {
     }
     else if (e.bit.EVENT == KEY_JUST_RELEASED) {
       timeDifference = millis() - pressTime;
+      Serial.print(F(" RELEASED (time: "));
+      Serial.print(timeDifference);
+      Serial.println(F("ms)"));
       
       if (timeDifference < SystemConfig::KEY_DEBOUNCE_DELAY) {
+        Serial.println(F("Ignoring short press (debounce)"));
         continue;  // Debounce: ignore very short presses
       }
       
       key = (char)e.bit.KEY;
       releaseTime = millis();
+      rels_time = millis();  // Store release time for alpha input (like original code)
       displayOnTimer = millis();
+      
+      Serial.print(F("[Keypad] Key processed: '"));
+      Serial.print(key);
+      Serial.print(F("' (code="));
+      Serial.print((int)key);
+      Serial.print(F(", rels_time="));
+      Serial.print(rels_time);
+      Serial.println(F(")"));
       
       switch (key) {
         case KEY_POWER:
+          Serial.println(F("[Keypad] POWER key pressed"));
           // Lock the safe and turn off display
           break;
         case KEY_MUTE: {
+          Serial.println(F("[Keypad] MUTE key pressed"));
           // Toggle mute setting
           BuzzerController* buzzer = mainSystem->getBuzzerController();
           if (buzzer != nullptr) {
@@ -211,6 +274,7 @@ void UIStateMachine::handleKeypadInput() {
           break;
         }
         case KEY_LOCK: {
+          Serial.println(F("[Keypad] LOCK key pressed"));
           // Lock the door
           isDisplayed = false;
           DoorController* door = mainSystem->getDoorController();
@@ -222,8 +286,21 @@ void UIStateMachine::handleKeypadInput() {
         }
         default:
           if (lcdState == LCD_STATE_ON) {
+            Serial.print(F("[Keypad] Regular key - setting isNewKey. LCD state: "));
+            Serial.print((int)lcdState);
+            Serial.print(F(", Current state: "));
+            Serial.print((int)currentState);
+            Serial.print(F(", rels_time="));
+            Serial.println(rels_time);
+            
+            // Store release time for alpha input (like original code: rels_time = millis())
+            // rels_time already set above
+            
             isNewKey = true;
+            Serial.println(F("[Keypad] isNewKey set to TRUE"));
             break;
+          } else {
+            Serial.println(F("[Keypad] LCD off - ignoring key"));
           }
       }
     }
@@ -232,18 +309,42 @@ void UIStateMachine::handleKeypadInput() {
 
 // Check if new index (for alpha input)
 bool UIStateMachine::isNewIndex() {
+  Serial.print(F("isNewIndex: isNum="));
+  Serial.print(isNum);
+  Serial.print(F(", key='"));
+  Serial.print(key);
+  Serial.print(F("' ("));
+  Serial.print((int)key);
+  Serial.println(F(")"));
+  
   if (!isNum && key >= '0' && key <= '9') {
     uint8_t temp_key = uint8_t(key) - 48;
+    Serial.print(F("Alpha mode - key number: "));
+    Serial.println(temp_key);
     
-    if (prev_key != key || (releaseTime - prev_rels_time_for_alpha) > 400) {
-      prev_rels_time_for_alpha = releaseTime;
+    unsigned long time_since_last = rels_time - prev_rels_time_for_alpha;
+    Serial.print(F("Time since last press: "));
+    Serial.print(time_since_last);
+    Serial.print(F(" (rels_time="));
+    Serial.print(rels_time);
+    Serial.print(F(", prev="));
+    Serial.print(prev_rels_time_for_alpha);
+    Serial.println(F(")"));
+    
+    if (prev_key != key || time_since_last > 400) {
+      Serial.println(F("New key or timeout - new index"));
+      prev_rels_time_for_alpha = rels_time;
       times_prssd = 0;
       prev_key = key;
       get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd]);
+      Serial.print(F("Character from table: '"));
+      Serial.print(get_character);
+      Serial.println(F("'"));
       return true;
     }
-    else if ((releaseTime - prev_rels_time_for_alpha) < 400) {
-      prev_rels_time_for_alpha = releaseTime;
+    else if (time_since_last < 400 && time_since_last >= 0) {
+      Serial.println(F("Same key pressed quickly - cycling character"));
+      prev_rels_time_for_alpha = rels_time;
       times_prssd++;
       
       if (temp_key > 0 && temp_key <= 6) {
@@ -253,12 +354,19 @@ bool UIStateMachine::isNewIndex() {
         uint8_t max_chars = (temp_key == 0) ? 2 : 2;
         get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd % max_chars]);
       }
+      Serial.print(F("Cycled character: '"));
+      Serial.print(get_character);
+      Serial.println(F("'"));
       return false;
     }
   }
   
+  // Numeric mode or non-digit key
   times_prssd = 0;
   get_character = key;
+  Serial.print(F("Numeric/non-digit - character: '"));
+  Serial.print(get_character);
+  Serial.println(F("'"));
   return true;
 }
 
@@ -413,6 +521,7 @@ void UIStateMachine::updateDisplay() {
 
 // Handle main state (password entry)
 void UIStateMachine::handleMainState() {
+  Serial.println(F("handleMainState() called - entering passwordInputFSM"));
   passwordInputFSM();
 }
 
@@ -570,13 +679,33 @@ void UIStateMachine::handleLockDoorState() {
 
 // Password input FSM
 void UIStateMachine::passwordInputFSM() {
+  static unsigned long last_call_time = 0;
+  unsigned long now = millis();
+  if (now - last_call_time > 1000) {
+    Serial.print(F("[Password FSM] Called. State="));
+    Serial.print((int)currentState);
+    Serial.print(F(", isDisplayed="));
+    Serial.print(isDisplayed);
+    Serial.print(F(", isNewKey="));
+    Serial.print(isNewKey);
+    Serial.print(F(", passLength="));
+    Serial.println(passLength);
+    last_call_time = now;
+  }
+  
   FingerprintManager* fingerprint = mainSystem->getFingerprintManager();
   if (fingerprint != nullptr) {
     // Handle fingerprint authentication
     // TODO: Implement fingerprint FSM
   }
   
+  // Match original structure: if (!is_displayed) { ... } else { if (is_new_key) { ... } }
   if (!isDisplayed) {
+    Serial.print(F("[Password FSM] Displaying screen. State="));
+    Serial.print((int)currentState);
+    Serial.print(F(", passLength="));
+    Serial.println(passLength);
+    
     isDisplayed = true;
     lcd->clear();
     lcd->setCursor(0, 0);
@@ -584,9 +713,11 @@ void UIStateMachine::passwordInputFSM() {
     switch (currentState) {
       case MAIN:
         lcd->print(F("PASSWORD:"));
+        Serial.println(F("[Password FSM] Displayed: PASSWORD:"));
         break;
       case MASTER_PASSWORD:
         lcd->print(F("MASTER PW:"));
+        Serial.println(F("[Password FSM] Displayed: MASTER PW:"));
         break;
       case USER_PASSWORD:
         lcd->setCursor(0, 0);
@@ -594,6 +725,9 @@ void UIStateMachine::passwordInputFSM() {
         if (currentUserID < 10) lcd->print('0');
         lcd->print(currentUserID);
         lcd->print(F(" PW "));
+        Serial.print(F("[Password FSM] Displayed: USER-"));
+        Serial.print(currentUserID);
+        Serial.println(F(" PW"));
         break;
       default:
         break;
@@ -606,14 +740,28 @@ void UIStateMachine::passwordInputFSM() {
       lcd->print(F("ALPHA"));
     }
     
+    Serial.print(F("[Password FSM] Current password length: "));
+    Serial.println(passLength);
+    
+    // Display existing password characters as asterisks
     for (uint8_t i = 0; i < passLength; i++) {
       lcd->setCursor(i, 1);
       lcd->print('*');
     }
+    Serial.println(F("[Password FSM] Initial display complete"));
   }
-  
-  if (isNewKey) {
-    isNewKey = false;
+  else {
+    // Display already shown - process keypad input (like original else block)
+    Serial.println(F("[Password FSM] Display shown - checking for key input"));
+    
+    if (isNewKey) {
+      Serial.print(F("[Password FSM] New key detected: '"));
+      Serial.print(key);
+      Serial.print(F("' (code="));
+      Serial.print((int)key);
+      Serial.print(F(") passLength="));
+      Serial.println(passLength);
+      isNewKey = false;
     switch (key) {
       case KEY_ALPHA_NUM:
         isNum = !isNum;
@@ -701,25 +849,53 @@ void UIStateMachine::passwordInputFSM() {
         break;
       default:
         {
-          bool newIndex = isNewIndex();
-          if (newIndex) {
-            passLength++;
-          }
-          lcd->setCursor(passLength - 1, 1);
-          lcd->print(getPressedCharacter());
-          delay(400);
-          lcd->setCursor(passLength - 1, 1);
-          lcd->print('*');
+          Serial.print(F("Processing regular key '"));
+          Serial.print(key);
+          Serial.print(F("' (code="));
+          Serial.print((int)key);
+          Serial.println(F(")"));
           
-          if (newIndex) {
-            password[passLength - 1] = getPressedCharacter();
+          // Increment pass length based on isNewIndex() return (like original code)
+          // pass_length += uint8_t(is_new_index());
+          uint8_t increment = uint8_t(isNewIndex());
+          passLength += increment;
+          
+          Serial.print(F("isNewIndex returned: "));
+          Serial.print(increment);
+          Serial.print(F(", passLength now: "));
+          Serial.println(passLength);
+          
+          if (passLength > 0 && passLength <= SystemConfig::MAX_PASSWORD_LEN) {
+            char pressedChar = getPressedCharacter();
+            Serial.print(F("Pressed character: '"));
+            Serial.print(pressedChar);
+            Serial.print(F("' (code="));
+            Serial.print((int)pressedChar);
+            Serial.println(F(")"));
+            
+            // Show character briefly, then mask it (like original code)
+            lcd->setCursor(passLength - 1, 1);
+            lcd->print(pressedChar);
+            delay(400);
+            lcd->setCursor(passLength - 1, 1);
+            lcd->print('*');
+            
+            // Store the character
+            password[passLength - 1] = pressedChar;
+            Serial.print(F("Stored '"));
+            Serial.print(pressedChar);
+            Serial.print(F("' at password["));
+            Serial.print(passLength - 1);
+            Serial.println(F("]"));
           } else {
-            password[passLength - 1] = getPressedCharacter();
+            Serial.print(F("Password length limit reached: "));
+            Serial.println(passLength);
           }
         }
         break;
     }
-  }
+    }  // End of if (isNewKey) block
+  }  // End of else block (display already shown)
 }
 
 // Verify dual password
