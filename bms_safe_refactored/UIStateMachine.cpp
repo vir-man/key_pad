@@ -295,11 +295,21 @@ void UIStateMachine::handleKeypadInput() {
       // Calculate time difference (like original: time_difference = millis() - prss_time)
       timeDifference = millis() - pressTime;
       
-      // Debounce check (like original: if (time_difference < 5))
-      if (timeDifference < 5) {
-        // debounce: ignore very short presses (like original)
+      // Accept presses that are at least 100ms (reduced from longer duration requirement)
+      // This allows quick, responsive key entry while filtering out very short noise spikes
+      if (timeDifference < SystemConfig::KEY_MIN_PRESS_DURATION) {
+        // Press too short (< 100ms) - ignore to prevent false triggers from electrical noise
+        Serial.print(F("[Keypad] Ignoring short press ("));
+        Serial.print(timeDifference);
+        Serial.print(F("ms < "));
+        Serial.print(SystemConfig::KEY_MIN_PRESS_DURATION);
+        Serial.println(F("ms)"));
         continue;
       }
+      
+      Serial.print(F("[Keypad] Valid key press detected (duration: "));
+      Serial.print(timeDifference);
+      Serial.println(F("ms)"));
       
       // Store key (like original: key = (char)e.bit.KEY)
       key = (char)e.bit.KEY;
