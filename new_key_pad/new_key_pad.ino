@@ -1171,7 +1171,7 @@ void gpio_init()
   // pinMode(14,OUTPUT);
   // digitalWrite(14,HIGH);
   siren_off(siren_pin[0]);
-  // siren_off(siren_pin[1]);
+  siren_off(siren_pin[1]);
   on_prev_state = on_current_state = digitalRead(on_switch_pin);
   battery_analog_input = analogRead(analogInPin);
   battery_percentage = map(battery_analog_input, 0, 900, 0, 100);
@@ -1794,6 +1794,7 @@ void temp_task()
         vibration_started = 0;
         b_vibration_alarm_triggered = 1;
         siren_on(siren_pin[0]);
+        siren_on(siren_pin[1]);
         generate_random_otp();
         vibration_change_counter = 0;
         Serial.println("Vibration alarm Triggered!!------------------------------>");
@@ -1829,6 +1830,7 @@ void temp_task()
           generate_random_otp();
           lcd_power_off();
           siren_on(siren_pin[0]);
+          siren_on(siren_pin[1]);
           // lcd_state = LCD_STATE_OFF;
           if (gpa_state == GPA_DO_NOTHING)
           {
@@ -2315,7 +2317,7 @@ void input_otp_fsm()
           b_temperature_alarm_triggerd = 0;
           b_otp_not_matched = 0;
           siren_off(siren_pin[0]);
-          // siren_off(siren_pin[1]);
+          siren_off(siren_pin[1]);
           display_screen = MAIN;
           otp_length = 0;
           memset(otp, '\0', sizeof(otp));
@@ -4511,78 +4513,58 @@ String _mobile_number1;
 uint8_t index;
 String str_to_be_parsed;
 int8_t _user_id_from_mobile_number = -1;
-bool find_mobile_number(String _input)
+bool find_mobile_number(const char* _input, uint16_t inputLen)
 {
-  // index = _input.indexOf("+91");
-  int16_t index1 = _input.indexOf("+91");
-  int16_t index2 = _input.indexOf("\",\"");
-  Serial.println(index1);
-  Serial.println(index2);
-
-  if (index1 != -1 && index2 != -1)
+  // Find "+91" and "\",\"" markers without creating substrings
+  int16_t index1 = -1;
+  int16_t index2 = -1;
+  
+  for (uint16_t i = 0; i < inputLen - 3; i++)
   {
-    if (index1 >= index2)
-      return 0;
-    uint8_t len = index2 - index1;
-    if (len > 100)
-      return 0;
-
-    String str_to_be_parsed = _input.substring(index1 + 3, index2);
-    Serial.println(str_to_be_parsed);
-    memset(received_mobile_number_in_char, '\0', sizeof(received_mobile_number_in_char));
-    str_to_be_parsed.toCharArray(char_array, str_to_be_parsed.length() + 1);
-    // Serial.println(char_array);
-    // char_array[10] = '\0';
-    for (uint8_t i = 0, k = 0; i < 10; i++)
-    {
-      if (char_array[i] != ' ' || char_array[i] != '\0')
-      {
-        received_mobile_number_in_char[k] = char_array[i];
-        // Serial.println(received_mobile_number_in_char[i]);
-        k++;
-        if (k == 10)
-        {
-          received_mobile_number_in_char[k] = '\0';
-          break;
-        }
-      }
-    }
-    // Serial.println(String(received_mobile_number_in_char));
-    // received_mnic[0]='\0';
-    // for(uint8_t i=0;i<10;i++){
-    //   received_mnic[i] = received_mobile_number_in_char[i];
-    //   received_mnic[i + 1]='\0';
-    // }
-    Serial.println((received_mobile_number_in_char));
-    // update_password_from_eeprom(0);
-    // bool b_mobile_number_not_found = 0;
-    // int8_t _user_id_from_mobile_number = -1;
-    // for(uint8_t i=0;i<MAX_NUM_OF_USERS;i++){
-    //   if(is_password_configured[i]){
-    //     b_mobile_number_not_found = 0;
-    //     for(uint8_t j=0;j<10;j++){
-    //       if(received_mobile_number_in_char[j] != mobile_number[i][j]){
-    //         b_mobile_number_not_found = 1;
-    //         break;
-    //       }
-    //     }
-    //     if(!b_mobile_number_not_found){
-    //       _user_id_from_mobile_number = i;
-    //       Serial.println(_user_id_from_mobile_number);
-    //       break;
-    //     }
-    //   }
-    // }
-
-    _user_id_from_mobile_number = find_mobile_number_index_from_eeprom(received_mobile_number_in_char);
-    Serial.println(_user_id_from_mobile_number);
-    return true;
+    if (_input[i] == '+' && _input[i+1] == '9' && _input[i+2] == '1' && index1 == -1)
+      index1 = i;
   }
-  else
+  
+  for (uint16_t i = 0; i < inputLen - 2; i++)
   {
+    if (_input[i] == '"' && _input[i+1] == ',' && _input[i+2] == '"' && index2 == -1 && i > index1)
+      index2 = i;
+  }
+
+  DEBUG_PRINT("index1: ");
+  DEBUG_PRINTLN(index1);
+  DEBUG_PRINT("index2: ");
+  DEBUG_PRINTLN(index2);
+
+  if (index1 == -1 || index2 == -1 || index1 >= index2)
     return false;
+
+  uint16_t mobLen = index2 - index1 - 3;  // -3 for "+91"
+  if (mobLen > 10)
+    return false;
+
+  // Copy mobile number directly from input
+  memset(received_mobile_number_in_char, '\0', sizeof(received_mobile_number_in_char));
+  uint8_t k = 0;
+  
+  for (uint16_t i = 0; i < mobLen && k < 10; i++)
+  {
+    char c = _input[index1 + 3 + i];
+    if (c != ' ' && c != '\0')
+    {
+      received_mobile_number_in_char[k++] = c;
+    }
   }
-  return;
+  received_mobile_number_in_char[k] = '\0';
+
+  DEBUG_PRINTLN(F("Mobile number extracted:"));
+  DEBUG_PRINTLN(received_mobile_number_in_char);
+
+  _user_id_from_mobile_number = find_mobile_number_index_from_eeprom(received_mobile_number_in_char);
+  DEBUG_PRINT("User ID from mobile: ");
+  DEBUG_PRINTLN(_user_id_from_mobile_number);
+  
+  return true;
 
   /*
     Serial.print("index :");
@@ -4882,7 +4864,7 @@ void api_verify_otp()
       b_temperature_alarm_triggerd = 0;
       b_otp_not_matched = 0;
       siren_off(siren_pin[0]);
-      // siren_off(siren_pin[1]);
+      siren_off(siren_pin[1]);
       display_screen = MAIN;
       otp_length = 0;
       memset(otp, '\0', sizeof(otp));
@@ -5265,113 +5247,132 @@ void copy_array(char *from_array, char *to_array, uint8_t len_to_be_copied)
   Serial.println();
 }
 
-bool parse_vars(String _input)
+bool parse_vars(const char* _input, uint16_t inputLen)
 {
-  int16_t index1 = _input.indexOf("&");
-  int16_t index2 = _input.indexOf("#");
-  uint8_t len = 0;
-  uint8_t counter = 0;
-  uint8_t prev_index = 0;
-  if (index1 != -1 && index2 != -1)
+  // Find '&' and '#' markers without creating substrings
+  int16_t index1 = -1;
+  int16_t index2 = -1;
+  
+  for (uint16_t i = 0; i < inputLen; i++)
   {
-    if (index1 >= index2)
-      return 0;
-    uint8_t len = index2 - index1;
-    if (len > 100)
-      return 0;
-    str_to_be_parsed = _input.substring(index1 + 1, index2 + 2);
-    memset(char_array, '\0', sizeof(char_array));
-    str_to_be_parsed.toCharArray(char_array, str_to_be_parsed.length() + 1);
-    // DEBUG_PRINTLN(char_array);
-    for (uint8_t i = 0; i < len; i++)
+    if (_input[i] == '&' && index1 == -1)
+      index1 = i;
+    if (_input[i] == '#' && index2 == -1)
+      index2 = i;
+  }
+  
+  if (index1 == -1 || index2 == -1 || index1 >= index2)
+    return 0;
+
+  uint8_t counter = 0;
+  uint16_t prev_index = 0;
+  uint16_t segLen = index2 - index1 - 1;
+  
+  if (segLen > 100)
+    return 0;
+
+  // Copy segment directly from input string to char_array
+  memset(char_array, '\0', sizeof(char_array));
+  for (uint16_t i = 0; i < segLen && i < sizeof(char_array) - 1; i++)
+  {
+    char_array[i] = _input[index1 + 1 + i];
+  }
+
+  para_count = 0;
+  
+  for (uint16_t i = 0; i < segLen; i++)
+  {
+    if (char_array[i] == CMD_SEPARATOR || char_array[i] == MSG_END_CHAR)
     {
-      // DEBUG_PRINT(char_array[i]);
-      if (char_array[i] == CMD_SEPARATOR || char_array[i] == MSG_END_CHAR)
+      if (counter == 0)
       {
-        // DEBUG_PRINTLN("Coming1");
-        if (counter == 0)
+        // Parse command
+        if (i >= MIN_CMD_LEN && i < MAX_CMD_LEN)
         {
-          if (i >= MIN_CMD_LEN && i < MAX_CMD_LEN)
-          {
-            memset(cmd, '\0', sizeof(cmd));
-            for (uint8_t j = 0, k = 0; j < i; j++)
-            {
-              if (char_array[j] != ' ')
-              {
-                cmd[k] = char_array[j];
-                k++;
-              }
-            }
-            // copy_array(&char_array[0], &cmd[0], i);
-            prev_index = i;
-            para_count = 0;
-            counter++;
-          }
-          else
-          {
-            DEBUG_PRINTLN("cmd not found in parse request");
-            return 0;
-          }
-        }
-        else if (i - prev_index < 2)
-        {
-          prev_index = i;
-        }
-        else if ((i - prev_index < MAX_PARA_LEN))
-        {
-          // DEBUG_PRINTLN("Coming");
-          memset(para[para_count], '\0', sizeof(para[para_count]));
-          para_len[para_count] = (i - prev_index - 1);
-          for (uint8_t j = 0, k = 0; j < para_len[para_count]; j++)
+          memset(cmd, '\0', sizeof(cmd));
+          for (uint16_t j = 0, k = 0; j < i; j++)
           {
             if (char_array[j] != ' ')
             {
-              para[para_count][k] = char_array[prev_index + 1 + j];
-              k++;
+              cmd[k++] = char_array[j];
             }
           }
-          // copy_array(&char_array[prev_index + 1], &para[para_count][0], (i - prev_index - 1));
-
           prev_index = i;
-          para_count++;
           counter++;
         }
+        else
+        {
+          DEBUG_PRINTLN("cmd not found in parse request");
+          return 0;
+        }
+      }
+      else if (i - prev_index < 2)
+      {
+        // Empty parameter, skip
+        prev_index = i;
+      }
+      else if ((i - prev_index - 1) < MAX_PARA_LEN && para_count < MAX_PARAMETER)
+      {
+        // Parse parameter: extract characters between prev_index+1 and i
+        memset(para[para_count], '\0', sizeof(para[para_count]));
+        uint16_t rawLen = i - prev_index - 1;
+        uint8_t k = 0;
+        
+        for (uint16_t j = 0; j < rawLen && k < MAX_PARA_LEN - 1; j++)
+        {
+          char c = char_array[prev_index + 1 + j];
+          if (c != ' ' && c != '\0')
+          {
+            para[para_count][k++] = c;
+          }
+        }
+        para_len[para_count] = k;  // Store actual length after removing spaces
+        para_count++;
+        prev_index = i;
+        counter++;
       }
     }
-    /* Print Para Counts and CMD */
-    DEBUG_PRINT("CMD:");
-    DEBUG_PRINTLN(cmd);
-    for (uint8_t i = 0; i < para_count; i++)
-    {
-      DEBUG_PRINT("Para[");
-      DEBUG_PRINT(i);
-      DEBUG_PRINT("]:");
-      DEBUG_PRINTLN(para[i]);
-    }
-
-    return 1;
   }
-  return 0;
+
+  /* Print Para Counts and CMD */
+  DEBUG_PRINT("CMD:");
+  DEBUG_PRINTLN(cmd);
+  DEBUG_PRINT("PARA_COUNT:");
+  DEBUG_PRINTLN(para_count);
+  for (uint8_t i = 0; i < para_count; i++)
+  {
+    DEBUG_PRINT("Para[");
+    DEBUG_PRINT(i);
+    DEBUG_PRINT(":");
+    DEBUG_PRINT(para_len[i]);
+    DEBUG_PRINT("]:");
+    DEBUG_PRINTLN(para[i]);
+  }
+
+  return 1;
 }
 void process_string(String c)
 {
-
-  memset(char_array, '\0', sizeof(char_array));
+  // Convert String to const char* and get length to avoid heap fragmentation
   c.trim();
-  if (c.equals("\r\n"))
+  
+  // Check for empty/whitespace-only string
+  if (c.length() == 0 || c.equals("\r\n"))
   {
     DEBUG_PRINTLN("----------------------No String----------------------");
+    return;
   }
-  else if (c.startsWith("+CMT:"))
+
+  const char* inputStr = c.c_str();
+  uint16_t inputLen = c.length();
+
+  if (c.startsWith("+CMT:"))
   {
-    // DEBUG_PRINT("Received Mobile Number : ");
-    // print_eeprom_data(port);
     DEBUG_PRINTLN(c);
-    // find_mobile_number(c);
-    if (parse_vars(c) && find_mobile_number(c))
+    // Pass char array directly to avoid substring allocations
+    if (parse_vars(inputStr, inputLen) && find_mobile_number(inputStr, inputLen))
     {
       print_all_received_para();
-      // print_eeprom_data(port);
       process_request();
     }
     DEBUG_PRINTLN("----------------------SMS Received----------------------");
