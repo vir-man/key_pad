@@ -3,20 +3,21 @@
 #include <avr/pgmspace.h>
 
 // Response message codes (matching original system)
-#define USER_NO_REGISTERED 1
-#define PARA_MISSING 2
-#define PARA_INVALID 3
-#define PW_IS_NO_VALID 4
-#define NO_ACCESS_ALLOWED 5
-#define DOOR_UNLOCK_CMD_ACCEPTED 6
-#define DOOR_LOCK_CMD_ACCEPTED 7
-#define PW_LENGH_IS_NOT_IN_LIMIT 8
-#define USER_ALREADY_EXISTS 9
-#define USER_NOT_FOUND 10
-#define PW_CHANGED 11
-#define PW_IS_NOT_CONFIGURED 12
-#define MOBILE_NUMBER_IS_NOT_REGISTERD 13
-#define CMD_EXECUTED 14
+// Note: Using SMS_MSG_ prefix to avoid conflicts with SystemConfig constants
+#define SMS_MSG_USER_NO_REGISTERED 1
+#define SMS_MSG_PARA_MISSING 2
+#define SMS_MSG_PARA_INVALID 3
+#define SMS_MSG_PW_IS_NO_VALID 4
+#define SMS_MSG_NO_ACCESS_ALLOWED 5
+#define SMS_MSG_DOOR_UNLOCK_CMD_ACCEPTED 6
+#define SMS_MSG_DOOR_LOCK_CMD_ACCEPTED 7
+#define SMS_MSG_PW_LENGH_IS_NOT_IN_LIMIT 8
+#define SMS_MSG_USER_ALREADY_EXISTS 9
+#define SMS_MSG_USER_NOT_FOUND 10
+#define SMS_MSG_PW_CHANGED 11
+#define SMS_MSG_PW_IS_NOT_CONFIGURED 12
+#define SMS_MSG_MOBILE_NUMBER_IS_NOT_REGISTERD 13
+#define SMS_MSG_CMD_EXECUTED 14
 
 SMSCommandParser::SMSCommandParser(HardwareSerial* serial, UserManager* userMgr, 
                                      AuthenticationManager* authMgr, DoorController* doorCtrl,
@@ -224,46 +225,46 @@ void SMSCommandParser::sendResponseWithDesc(uint8_t desc_code) {
   const char* message = "";
   
   switch(desc_code) {
-    case DOOR_UNLOCK_CMD_ACCEPTED:
+    case SMS_MSG_DOOR_UNLOCK_CMD_ACCEPTED:
       message = PSTR("Door Unlock Command Accepted!");
       break;
-    case DOOR_LOCK_CMD_ACCEPTED:
+    case SMS_MSG_DOOR_LOCK_CMD_ACCEPTED:
       message = PSTR("Door Lock Command Accepted!");
       break;
-    case CMD_EXECUTED:
+    case SMS_MSG_CMD_EXECUTED:
       message = PSTR("Command Executed");
       break;
-    case PW_CHANGED:
+    case SMS_MSG_PW_CHANGED:
       message = PSTR("Password Changed");
       break;
-    case USER_NO_REGISTERED:
+    case SMS_MSG_USER_NO_REGISTERED:
       message = PSTR("User No Registered");
       break;
-    case PARA_MISSING:
+    case SMS_MSG_PARA_MISSING:
       message = PSTR("Parameters missing");
       break;
-    case PARA_INVALID:
+    case SMS_MSG_PARA_INVALID:
       message = PSTR("Invalid parameters");
       break;
-    case PW_IS_NO_VALID:
+    case SMS_MSG_PW_IS_NO_VALID:
       message = PSTR("Password is not valid");
       break;
-    case NO_ACCESS_ALLOWED:
+    case SMS_MSG_NO_ACCESS_ALLOWED:
       message = PSTR("No Access Allowed");
       break;
-    case PW_LENGH_IS_NOT_IN_LIMIT:
+    case SMS_MSG_PW_LENGH_IS_NOT_IN_LIMIT:
       message = PSTR("Password length is not in limit");
       break;
-    case USER_ALREADY_EXISTS:
+    case SMS_MSG_USER_ALREADY_EXISTS:
       message = PSTR("User already exists");
       break;
-    case USER_NOT_FOUND:
+    case SMS_MSG_USER_NOT_FOUND:
       message = PSTR("User not found");
       break;
-    case PW_IS_NOT_CONFIGURED:
+    case SMS_MSG_PW_IS_NOT_CONFIGURED:
       message = PSTR("Password is not configured");
       break;
-    case MOBILE_NUMBER_IS_NOT_REGISTERD:
+    case SMS_MSG_MOBILE_NUMBER_IS_NOT_REGISTERD:
       message = PSTR("Mobile number is not registered");
       break;
     default:
@@ -276,23 +277,23 @@ void SMSCommandParser::sendResponseWithDesc(uint8_t desc_code) {
 
 uint8_t SMSCommandParser::apiUnlockDoor() {
   if (received_mobile_number_index < 0) {
-    sendResponseWithDesc(USER_NO_REGISTERED);
+    sendResponseWithDesc(SMS_MSG_USER_NO_REGISTERED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 2) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   uint8_t user_id = parseUserID(para[0], para_len[0]);
   if (user_id == 0 || user_id > SystemConfig::MAX_NUM_OF_USERS) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_len[1] < SystemConfig::MIN_PASSWORD_LEN || para_len[1] > SystemConfig::MAX_PASSWORD_LEN) {
-    sendResponseWithDesc(PW_LENGH_IS_NOT_IN_LIMIT);
+    sendResponseWithDesc(SMS_MSG_PW_LENGH_IS_NOT_IN_LIMIT);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -305,10 +306,10 @@ uint8_t SMSCommandParser::apiUnlockDoor() {
     // Step 1: Master verification
     ErrorCode err = authManager->smsVerifyMaster(user_id, password, para_len[1]);
     if (err == ErrorCode::SUCCESS) {
-      sendResponseWithDesc(DOOR_UNLOCK_CMD_ACCEPTED);
+      sendResponseWithDesc(SMS_MSG_DOOR_UNLOCK_CMD_ACCEPTED);
       return SystemConfig::CMD_EXECUTED;
     } else {
-      sendResponseWithDesc(PW_IS_NO_VALID);
+      sendResponseWithDesc(SMS_MSG_PW_IS_NO_VALID);
       return SystemConfig::CMD_NOT_FOUND;
     }
   } else {
@@ -317,16 +318,16 @@ uint8_t SMSCommandParser::apiUnlockDoor() {
     if (err == ErrorCode::SUCCESS) {
       // Unlock door
       doorController->openDoor(user_id);
-      sendResponseWithDesc(DOOR_UNLOCK_CMD_ACCEPTED);
+      sendResponseWithDesc(SMS_MSG_DOOR_UNLOCK_CMD_ACCEPTED);
       return SystemConfig::CMD_EXECUTED;
     } else if (err == ErrorCode::AUTH_MASTER_NOT_VERIFIED) {
-      sendResponseWithDesc(NO_ACCESS_ALLOWED);
+      sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
       return SystemConfig::CMD_NOT_FOUND;
     } else if (err == ErrorCode::DOOR_ACCESS_DENIED_HOLIDAY || err == ErrorCode::DOOR_ACCESS_DENIED_TIME_SLOT) {
-      sendResponseWithDesc(NO_ACCESS_ALLOWED);
+      sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
       return SystemConfig::CMD_NOT_FOUND;
     } else {
-      sendResponseWithDesc(PW_IS_NO_VALID);
+      sendResponseWithDesc(SMS_MSG_PW_IS_NO_VALID);
       return SystemConfig::CMD_NOT_FOUND;
     }
   }
@@ -334,23 +335,23 @@ uint8_t SMSCommandParser::apiUnlockDoor() {
 
 uint8_t SMSCommandParser::apiLockDoor() {
   if (received_mobile_number_index < 0) {
-    sendResponseWithDesc(USER_NO_REGISTERED);
+    sendResponseWithDesc(SMS_MSG_USER_NO_REGISTERED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 2) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   uint8_t user_id = parseUserID(para[0], para_len[0]);
   if (user_id == 0 || user_id > SystemConfig::MAX_NUM_OF_USERS) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_len[1] < SystemConfig::MIN_PASSWORD_LEN || para_len[1] > SystemConfig::MAX_PASSWORD_LEN) {
-    sendResponseWithDesc(PW_LENGH_IS_NOT_IN_LIMIT);
+    sendResponseWithDesc(SMS_MSG_PW_LENGH_IS_NOT_IN_LIMIT);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -359,40 +360,40 @@ uint8_t SMSCommandParser::apiLockDoor() {
   copyArray(para[1], password, para_len[1]);
   
   if (!userManager->validatePassword(user_id, password, para_len[1])) {
-    sendResponseWithDesc(PW_IS_NO_VALID);
+    sendResponseWithDesc(SMS_MSG_PW_IS_NO_VALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   // Lock door
   doorController->closeDoor(user_id);
-  sendResponseWithDesc(DOOR_LOCK_CMD_ACCEPTED);
+  sendResponseWithDesc(SMS_MSG_DOOR_LOCK_CMD_ACCEPTED);
   return SystemConfig::CMD_EXECUTED;
 }
 
 uint8_t SMSCommandParser::apiAddUser() {
   if (received_mobile_number_index != SystemConfig::MASTER_USER_INDEX) {
-    sendResponseWithDesc(NO_ACCESS_ALLOWED);
+    sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 3) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   uint8_t user_id = parseUserID(para[0], para_len[0]);
   if (user_id == 0 || user_id > SystemConfig::MAX_NUM_OF_USERS || user_id == SystemConfig::MASTER_USER_ID) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_len[1] != SystemConfig::MOBILE_NUMBER_LENGTH) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_len[2] < SystemConfig::MIN_PASSWORD_LEN || para_len[2] > SystemConfig::MAX_PASSWORD_LEN) {
-    sendResponseWithDesc(PW_LENGH_IS_NOT_IN_LIMIT);
+    sendResponseWithDesc(SMS_MSG_PW_LENGH_IS_NOT_IN_LIMIT);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -406,71 +407,71 @@ uint8_t SMSCommandParser::apiAddUser() {
   
   ErrorCode err = userManager->addUser(user_id, mobile, password, para_len[2]);
   if (err == ErrorCode::SUCCESS) {
-    sendResponseWithDesc(CMD_EXECUTED);
+    sendResponseWithDesc(SMS_MSG_CMD_EXECUTED);
     return SystemConfig::CMD_EXECUTED;
   } else if (err == ErrorCode::USER_ALREADY_EXISTS) {
-    sendResponseWithDesc(USER_ALREADY_EXISTS);
+    sendResponseWithDesc(SMS_MSG_USER_ALREADY_EXISTS);
     return SystemConfig::CMD_NOT_FOUND;
   } else {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
 }
 
 uint8_t SMSCommandParser::apiRemoveUser() {
   if (received_mobile_number_index != SystemConfig::MASTER_USER_INDEX) {
-    sendResponseWithDesc(NO_ACCESS_ALLOWED);
+    sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 1) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   uint8_t user_id = parseUserID(para[0], para_len[0]);
   if (user_id == 0 || user_id > SystemConfig::MAX_NUM_OF_USERS || user_id == SystemConfig::MASTER_USER_ID) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   ErrorCode err = userManager->removeUser(user_id);
   if (err == ErrorCode::SUCCESS) {
-    sendResponseWithDesc(CMD_EXECUTED);
+    sendResponseWithDesc(SMS_MSG_CMD_EXECUTED);
     return SystemConfig::CMD_EXECUTED;
   } else {
-    sendResponseWithDesc(USER_NOT_FOUND);
+    sendResponseWithDesc(SMS_MSG_USER_NOT_FOUND);
     return SystemConfig::CMD_NOT_FOUND;
   }
 }
 
 uint8_t SMSCommandParser::apiChangePassword() {
   if (received_mobile_number_index < 0) {
-    sendResponseWithDesc(USER_NO_REGISTERED);
+    sendResponseWithDesc(SMS_MSG_USER_NO_REGISTERED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 3) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   uint8_t user_id = parseUserID(para[0], para_len[0]);
   if (user_id == 0 || user_id > SystemConfig::MAX_NUM_OF_USERS) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   // Check access: master can change any, user can only change own
   if (received_mobile_number_index != SystemConfig::MASTER_USER_INDEX && 
       received_mobile_number_index != (user_id - 1)) {
-    sendResponseWithDesc(NO_ACCESS_ALLOWED);
+    sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_len[1] < SystemConfig::MIN_PASSWORD_LEN || para_len[1] > SystemConfig::MAX_PASSWORD_LEN ||
       para_len[2] < SystemConfig::MIN_PASSWORD_LEN || para_len[2] > SystemConfig::MAX_PASSWORD_LEN) {
-    sendResponseWithDesc(PW_LENGH_IS_NOT_IN_LIMIT);
+    sendResponseWithDesc(SMS_MSG_PW_LENGH_IS_NOT_IN_LIMIT);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -484,28 +485,28 @@ uint8_t SMSCommandParser::apiChangePassword() {
   ErrorCode err = userManager->updateUserPassword(user_id, old_password, para_len[1], 
                                                   new_password, para_len[2]);
   if (err == ErrorCode::SUCCESS) {
-    sendResponseWithDesc(PW_CHANGED);
+    sendResponseWithDesc(SMS_MSG_PW_CHANGED);
     return SystemConfig::CMD_EXECUTED;
   } else {
-    sendResponseWithDesc(PW_IS_NO_VALID);
+    sendResponseWithDesc(SMS_MSG_PW_IS_NO_VALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
 }
 
 uint8_t SMSCommandParser::apiUpdateTimeSlot() {
   if (received_mobile_number_index != SystemConfig::MASTER_USER_INDEX) {
-    sendResponseWithDesc(NO_ACCESS_ALLOWED);
+    sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 5) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   uint8_t user_id = parseUserID(para[0], para_len[0]);
   if (user_id == 0 || user_id > SystemConfig::MAX_NUM_OF_USERS) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -515,45 +516,45 @@ uint8_t SMSCommandParser::apiUpdateTimeSlot() {
   uint8_t out_min = parseUserID(para[4], para_len[4]);
   
   if (in_hour > 23 || in_min > 59 || out_hour > 23 || out_min > 59) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   ErrorCode err = userManager->setTimeSlot(user_id, in_hour, in_min, out_hour, out_min);
   if (err == ErrorCode::SUCCESS) {
-    sendResponseWithDesc(CMD_EXECUTED);
+    sendResponseWithDesc(SMS_MSG_CMD_EXECUTED);
     return SystemConfig::CMD_EXECUTED;
   } else {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
 }
 
 uint8_t SMSCommandParser::apiLostPassword() {
   if (received_mobile_number_index < 0) {
-    sendResponseWithDesc(USER_NO_REGISTERED);
+    sendResponseWithDesc(SMS_MSG_USER_NO_REGISTERED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   // Only master can request lost password
   if (received_mobile_number_index != SystemConfig::MASTER_USER_INDEX) {
-    sendResponseWithDesc(NO_ACCESS_ALLOWED);
+    sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 1) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   uint8_t user_id = parseUserID(para[0], para_len[0]);
   if (user_id == 0 || user_id > SystemConfig::MAX_NUM_OF_USERS) {
-    sendResponseWithDesc(PARA_INVALID);
+    sendResponseWithDesc(SMS_MSG_PARA_INVALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (!userManager->isPasswordConfigured(user_id)) {
-    sendResponseWithDesc(PW_IS_NOT_CONFIGURED);
+    sendResponseWithDesc(SMS_MSG_PW_IS_NOT_CONFIGURED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -565,25 +566,25 @@ uint8_t SMSCommandParser::apiLostPassword() {
     return SystemConfig::CMD_EXECUTED;
   }
   
-  sendResponseWithDesc(PW_IS_NOT_CONFIGURED);
+  sendResponseWithDesc(SMS_MSG_PW_IS_NOT_CONFIGURED);
   return SystemConfig::CMD_NOT_FOUND;
 }
 
 uint8_t SMSCommandParser::apiFactoryReset() {
   if (received_mobile_number_index != SystemConfig::MASTER_USER_INDEX) {
-    sendResponseWithDesc(NO_ACCESS_ALLOWED);
+    sendResponseWithDesc(SMS_MSG_NO_ACCESS_ALLOWED);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   if (para_count < 1) {
-    sendResponseWithDesc(PARA_MISSING);
+    sendResponseWithDesc(SMS_MSG_PARA_MISSING);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
   // Verify master reset password
   const char* master_pw = SystemConfig::getMasterResetPassword();
   if (para_len[0] != SystemConfig::MASTER_PW_LEN) {
-    sendResponseWithDesc(PW_IS_NO_VALID);
+    sendResponseWithDesc(SMS_MSG_PW_IS_NO_VALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -596,7 +597,7 @@ uint8_t SMSCommandParser::apiFactoryReset() {
   }
   
   if (!match) {
-    sendResponseWithDesc(PW_IS_NO_VALID);
+    sendResponseWithDesc(SMS_MSG_PW_IS_NO_VALID);
     return SystemConfig::CMD_NOT_FOUND;
   }
   
@@ -605,7 +606,7 @@ uint8_t SMSCommandParser::apiFactoryReset() {
     userManager->removeUser(i + 1);
   }
   
-  sendResponseWithDesc(CMD_EXECUTED);
+  sendResponseWithDesc(SMS_MSG_CMD_EXECUTED);
   return SystemConfig::CMD_EXECUTED;
 }
 

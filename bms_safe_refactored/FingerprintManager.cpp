@@ -15,10 +15,10 @@ bool FingerprintManager::initialize() {
   
   finger = new Adafruit_Fingerprint(serial);
   
-  if (!finger->begin(SystemConfig::GSM_BAUD_RATE)) {
-    return false;
-  }
+  // begin() returns void, just initialize the serial
+  finger->begin(SystemConfig::GSM_BAUD_RATE);
   
+  // Verify password to check if sensor is responding
   if (finger->verifyPassword()) {
     return true;
   }

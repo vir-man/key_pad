@@ -6,8 +6,8 @@
 
 #include "MainSystem.h"
 
-// Global system instance
-MainSystem* system = nullptr;
+// Global system instance (renamed from 'system' to avoid conflict with stdlib)
+MainSystem* mainSystem = nullptr;
 
 void setup() {
   // Initialize Serial for debugging
@@ -20,9 +20,9 @@ void setup() {
   Serial.println(F("Initializing..."));
   
   // Create and initialize main system
-  system = new MainSystem();
+  mainSystem = new MainSystem();
   
-  if (!system->initialize()) {
+  if (!mainSystem->initialize()) {
     Serial.println(F("ERROR: System initialization failed!"));
     // System may still be partially functional
   } else {
@@ -33,14 +33,14 @@ void setup() {
 }
 
 void loop() {
-  if (system != nullptr && system->isInitialized()) {
+  if (mainSystem != nullptr && mainSystem->isInitialized()) {
     // Main system task - coordinates all subsystems
-    system->task();
+    mainSystem->task();
   } else {
     // System not initialized - try to recover
     delay(1000);
-    if (system != nullptr) {
-      system->initialize();
+    if (mainSystem != nullptr) {
+      mainSystem->initialize();
     }
   }
   

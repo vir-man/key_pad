@@ -28,7 +28,7 @@ ErrorCode TemperatureMonitor::readTemperature() {
   temperature_value = (int)sensors->getTempCByIndex(0);
   
   // Check for alarm
-  if (temperature_value > SystemConfig::TEMPERATURE_THRESHOLD) {
+  if (temperature_value > (int)SystemConfig::TEMPERATURE_THRESHOLD) {
     alarm_triggered = true;
   } else {
     alarm_triggered = false;
