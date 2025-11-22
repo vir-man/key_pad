@@ -444,7 +444,7 @@ void copy_data_from_sd_card_to_usb_flash_drive()
     flashDrive.setFileName("BMS-LOG1.TXT"); // set the file name
     flashDrive.openFile();                  // open the file
     bool readMore = true;
-    char char_array[43];
+    char char_array[40];  // Reduced from 43 to save 3 bytes RAM
     // read data from flash drive until we reach EOF
     while (readMore)
     { // our temporary buffer where we read data from flash drive and the size of that buffer
@@ -501,7 +501,7 @@ void printInfo(const char info[])
 #define ALPHA_SPEED_LEN_COUNT 4
 #define BUZZER_TIMEOUT_LEN_COUNT 4
 #define DOOR_OPEN_COUND_LEN_COUNT 4
-#define MAX_HOLIDAYS 30  // Reduced from 50 to save 60 bytes RAM
+#define MAX_HOLIDAYS 20  // Reduced from 30 to save 30 bytes RAM
 #define HOLIDAY_DATA_SIZE 3  // date (1 byte) + month (1 byte) + year (1 byte)
 #define HOLIDAY_COUNT_SIZE 1  // 1 byte to store count
 
@@ -539,14 +539,10 @@ uint16_t alpha_speed;
 uint16_t buzzer_timeout;
 uint16_t door_open_count;
 
-// Holiday management
+// Holiday management - optimized to save RAM
+// Holidays are read from EEPROM on-demand instead of keeping all in RAM
 uint8_t holiday_count = 0;
-struct Holiday {
-  uint8_t date;
-  uint8_t month;
-  uint8_t year;
-};
-Holiday holidays[MAX_HOLIDAYS];
+// Removed holidays[] array - read from EEPROM directly to save 60 bytes RAM
 
 char _mobile_number[10] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0'};
 char _password[15] = {/*'A', 'B',*/ '1', '2', '3', '4', '5', '6', '7', '8', '9', '3', '1', '2', 'Z', 'A', 'B'};
@@ -762,41 +758,47 @@ uint16_t read_door_open_count_to_eeprom()
 }
 
 // Holiday EEPROM functions
+void write_holiday_to_eeprom(uint8_t index, uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  // Write a single holiday to EEPROM at specified index
+  size_t addr = holiday_data_start_address + (index * HOLIDAY_DATA_SIZE);
+  EEPROM.write(addr, _date);
+  EEPROM.write(addr + 1, _month);
+  EEPROM.write(addr + 2, _year);
+}
+
 void write_holidays_to_eeprom()
 {
+  // Only write count - individual holidays are written directly
   EEPROM.write(holiday_count_start_address, holiday_count);
-  for (uint8_t i = 0; i < holiday_count && i < MAX_HOLIDAYS; i++)
-  {
-    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
-    EEPROM.write(addr, holidays[i].date);
-    EEPROM.write(addr + 1, holidays[i].month);
-    EEPROM.write(addr + 2, holidays[i].year);
-  }
 }
 
 void read_holidays_from_eeprom()
 {
+  // Only read count, not all holiday data (saves RAM - read from EEPROM on-demand)
   holiday_count = EEPROM.read(holiday_count_start_address);
   if (holiday_count > MAX_HOLIDAYS)
   {
     holiday_count = 0;
     write_holidays_to_eeprom();
   }
-  
-  for (uint8_t i = 0; i < holiday_count && i < MAX_HOLIDAYS; i++)
-  {
-    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
-    holidays[i].date = EEPROM.read(addr);
-    holidays[i].month = EEPROM.read(addr + 1);
-    holidays[i].year = EEPROM.read(addr + 2);
-  }
+  // Holidays are read from EEPROM directly when needed (is_holiday, view menu functions)
 }
 
 bool is_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
 {
-  for (uint8_t i = 0; i < holiday_count; i++)
+  // Read holidays directly from EEPROM to save RAM
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  for (uint8_t i = 0; i < count && i < MAX_HOLIDAYS; i++)
   {
-    if (holidays[i].date == _date && holidays[i].month == _month && holidays[i].year == _year)
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    uint8_t h_date = EEPROM.read(addr);
+    uint8_t h_month = EEPROM.read(addr + 1);
+    uint8_t h_year = EEPROM.read(addr + 2);
+    
+    if (h_date == _date && h_month == _month && h_year == _year)
     {
       return true;
     }
@@ -806,7 +808,11 @@ bool is_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
 
 bool add_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
 {
-  if (holiday_count >= MAX_HOLIDAYS)
+  // Read current count from EEPROM
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  if (count >= MAX_HOLIDAYS)
   {
     return false; // No space
   }
@@ -823,27 +829,42 @@ bool add_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
     return false; // Invalid date
   }
   
-  holidays[holiday_count].date = _date;
-  holidays[holiday_count].month = _month;
-  holidays[holiday_count].year = _year;
-  holiday_count++;
-  write_holidays_to_eeprom();
+  // Write holiday directly to EEPROM
+  write_holiday_to_eeprom(count, _date, _month, _year);
+  count++;
+  holiday_count = count;
+  write_holidays_to_eeprom(); // Update count
   return true;
 }
 
 bool remove_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
 {
-  for (uint8_t i = 0; i < holiday_count; i++)
+  // Read count from EEPROM
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  // Find the holiday to remove
+  for (uint8_t i = 0; i < count; i++)
   {
-    if (holidays[i].date == _date && holidays[i].month == _month && holidays[i].year == _year)
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    uint8_t h_date = EEPROM.read(addr);
+    uint8_t h_month = EEPROM.read(addr + 1);
+    uint8_t h_year = EEPROM.read(addr + 2);
+    
+    if (h_date == _date && h_month == _month && h_year == _year)
     {
-      // Shift remaining holidays
-      for (uint8_t j = i; j < holiday_count - 1; j++)
+      // Shift remaining holidays in EEPROM
+      for (uint8_t j = i; j < count - 1; j++)
       {
-        holidays[j] = holidays[j + 1];
+        size_t src_addr = holiday_data_start_address + ((j + 1) * HOLIDAY_DATA_SIZE);
+        size_t dst_addr = holiday_data_start_address + (j * HOLIDAY_DATA_SIZE);
+        EEPROM.write(dst_addr, EEPROM.read(src_addr));
+        EEPROM.write(dst_addr + 1, EEPROM.read(src_addr + 1));
+        EEPROM.write(dst_addr + 2, EEPROM.read(src_addr + 2));
       }
-      holiday_count--;
-      write_holidays_to_eeprom();
+      count--;
+      holiday_count = count;
+      write_holidays_to_eeprom(); // Update count
       return true;
     }
   }
@@ -1219,7 +1240,7 @@ extern bool b_command_close_door;
 /** LCD VARS [END] ***/
 
 uint32_t prss_time, rels_time, prev_rels_time, time_difference;
-char chararr[50];  // Reduced from 100 to save 50 bytes RAM (appears unused)
+// Removed chararr[50] - unused, saves 50 bytes RAM
 uint16_t lcd_press_counter = 0;
 unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
 unsigned long debounceDelay = 100;  // the debounce time; increase if the output flickers
@@ -3437,14 +3458,19 @@ void holiday_menu_fsm()
         lcd.print("/");
         lcd.print(holiday_count);
         lcd.setCursor(0, 1);
-        if (holidays[holiday_view_index].date < 10) lcd.print("0");
-        lcd.print(holidays[holiday_view_index].date);
+        // Read holiday from EEPROM directly
+        size_t addr = holiday_data_start_address + (holiday_view_index * HOLIDAY_DATA_SIZE);
+        uint8_t h_date = EEPROM.read(addr);
+        uint8_t h_month = EEPROM.read(addr + 1);
+        uint8_t h_year = EEPROM.read(addr + 2);
+        if (h_date < 10) lcd.print("0");
+        lcd.print(h_date);
         lcd.print("/");
-        if (holidays[holiday_view_index].month < 10) lcd.print("0");
-        lcd.print(holidays[holiday_view_index].month);
+        if (h_month < 10) lcd.print("0");
+        lcd.print(h_month);
         lcd.print("/");
-        if (holidays[holiday_view_index].year < 10) lcd.print("0");
-        lcd.print(holidays[holiday_view_index].year);
+        if (h_year < 10) lcd.print("0");
+        lcd.print(h_year);
       }
       break;
     }
@@ -4759,11 +4785,11 @@ char msg;
 char call;
 
 // Buffer for reading serial data (replaced String a, b)
-char serial_buffer[150];  // Reduced from 200 to save 50 bytes RAM
+char serial_buffer[100];  // Reduced from 150 to save 50 bytes RAM
 uint8_t serial_buffer_index = 0;
 uint8_t i = 0;
 
-char char_array[80];  // Reduced from 100 to save 20 bytes RAM
+char char_array[60];  // Reduced from 80 to save 20 bytes RAM
 // uint8_t received_mobile_number[10];
 char received_mobile_number_in_char[11];
 // char received_mnic[10];  // Removed unused buffer to save 10 bytes RAM
@@ -4771,7 +4797,7 @@ int8_t received_mobile_number_index1 = -1;
 
 #define MIN_CMD_LEN 3
 #define MAX_CMD_LEN 20
-#define MAX_PARA_LEN 16  // Reduced from 20 to save 20 bytes RAM (para array: 5*16=80 vs 5*20=100)
+#define MAX_PARA_LEN 12  // Reduced from 16 to save 20 bytes RAM (para array: 5*12=60 vs 5*16=80)
 #define CMD_SEPARATOR ','
 
 #define MSG_START_CHAR '&'
@@ -4781,7 +4807,7 @@ int8_t received_mobile_number_index1 = -1;
 #define CMD_NOT_FOUND 0
 #define CMD_EXECUTED 1
 
-char cmd[20] = {'\0'};
+char cmd[15] = {'\0'};  // Reduced from 20 to save 5 bytes RAM
 char para[MAX_PARAMETER][MAX_PARA_LEN];
 uint8_t para_len[MAX_PARAMETER];
 uint8_t para_count = 0;
