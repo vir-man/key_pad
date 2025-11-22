@@ -45,6 +45,7 @@ void loop() {
   }
   
   // Small delay to prevent watchdog issues
-  delay(10);
+  // Reduced delay for more responsive keypad input
+  delay(5);
 }
 

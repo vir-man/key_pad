@@ -65,10 +65,14 @@ ErrorCode AuthenticationManager::verifyUserPassword(uint8_t user_id, const char*
   
   if (!userManager->validatePassword(user_id, password, password_len)) {
     incrementFailureCount();
-    if (user_bio_auth_fail_count >= 1) {
+    // BUG FIX: Check for >= 2 instead of >= 1 to allow one retry before sending alert
+    // First failure (count=1): allow retry on same screen
+    // Second failure (count=2): send alert and reset auth state
+    if (user_bio_auth_fail_count >= 2) {
       resetAuthState();
       return ErrorCode::AUTH_INVALID_PASSWORD;
     }
+    // First failure - allow retry (don't reset state, stay on USER PASS/BIO screen)
     return ErrorCode::AUTH_INVALID_PASSWORD;
   }
   

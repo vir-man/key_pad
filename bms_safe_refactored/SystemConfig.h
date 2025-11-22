@@ -86,8 +86,7 @@ public:
   static constexpr uint32_t SMS_MASTER_VERIFY_TIMEOUT = 60000;
   static constexpr uint32_t TEMPERATURE_READ_INTERVAL = 10000;
   static constexpr uint32_t RTC_UPDATE_INTERVAL = 60000;  // 1 minute
-  static constexpr uint32_t KEY_DEBOUNCE_DELAY = 0;  // Minimum press duration: 0ms (accept any press)
-  static constexpr uint32_t KEY_MIN_PRESS_DURATION = 100;  // Minimum press duration for valid key event (100ms)
+  static constexpr uint32_t KEY_DEBOUNCE_DELAY = 5;  // Debounce delay: filter out very short noise spikes (5ms like original)
   
   // Message Queue
   static constexpr uint8_t MAX_QUEUE_SIZE = 10;

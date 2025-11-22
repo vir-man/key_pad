@@ -285,31 +285,26 @@ void UIStateMachine::handleKeypadInput() {
       Serial.print((char)e.bit.KEY);
       Serial.println(F(" pressed"));
       if (lcdState == LCD_STATE_ON) {
-        // Play a short beep for keypress (use tone() directly like original code)
-        tone(SystemConfig::BUZZER_PIN, pgm_read_word(&melody[0]), 200);
-        delay(100);
-        noTone(SystemConfig::BUZZER_PIN);
+        // Play a short beep for keypress (non-blocking - let it play in background)
+        tone(SystemConfig::BUZZER_PIN, pgm_read_word(&melody[0]), 100);
+        // Don't block - let tone() play in background and continue processing keypad
       }
     }
     else if (e.bit.EVENT == KEY_JUST_RELEASED) {
       // Calculate time difference (like original: time_difference = millis() - prss_time)
       timeDifference = millis() - pressTime;
       
-      // Accept presses that are at least 100ms (reduced from longer duration requirement)
-      // This allows quick, responsive key entry while filtering out very short noise spikes
-      if (timeDifference < SystemConfig::KEY_MIN_PRESS_DURATION) {
-        // Press too short (< 100ms) - ignore to prevent false triggers from electrical noise
+      // Debounce check (like original: if (time_difference < 5))
+      // Filter out very short presses (< 5ms) to prevent false triggers from electrical noise
+      if (timeDifference < SystemConfig::KEY_DEBOUNCE_DELAY) {
+        // debounce: ignore very short presses (like original)
         Serial.print(F("[Keypad] Ignoring short press ("));
         Serial.print(timeDifference);
         Serial.print(F("ms < "));
-        Serial.print(SystemConfig::KEY_MIN_PRESS_DURATION);
-        Serial.println(F("ms)"));
+        Serial.print(SystemConfig::KEY_DEBOUNCE_DELAY);
+        Serial.println(F("ms debounce)"));
         continue;
       }
-      
-      Serial.print(F("[Keypad] Valid key press detected (duration: "));
-      Serial.print(timeDifference);
-      Serial.println(F("ms)"));
       
       // Store key (like original: key = (char)e.bit.KEY)
       key = (char)e.bit.KEY;
