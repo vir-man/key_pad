@@ -2,7 +2,7 @@
 #include "Arduino.h"
 #include "stdlib.h"
 #include "stdio.h"
-#define MAX_NUM_OF_USERS 28 // Number including master user
+#define MAX_NUM_OF_USERS 10 // Number including master user
 
 void lcd_task();
 void lcd_init();
