@@ -171,9 +171,8 @@ void UIStateMachine::task() {
   static unsigned long last_task_print = 0;
   unsigned long now = millis();
   
-  // CRITICAL: Handle keypad input FIRST (must be called every loop)
-  // This calls keypad->tick() and processes keypad events
-  handleKeypadInput();
+  // Note: handleKeypadInput() is now called FIRST in MainSystem::task() for immediate response
+  // This matches the original code where gpio_task() (which calls tick()) is called early in loop()
   
   // Update display based on current state (this calls passwordInputFSM for MAIN state)
   updateDisplay();

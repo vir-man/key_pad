@@ -173,7 +173,15 @@ void MainSystem::task() {
     return;
   }
   
-  // Call task functions for all subsystems
+  // CRITICAL: Process keypad input FIRST (like original gpio_task() which calls tick() first)
+  // This ensures immediate keypad response, matching the original behavior
+  if (uiStateMachine != nullptr) {
+    // Only call handleKeypadInput() directly - don't call full task() yet
+    // The keypad needs to be processed immediately, before any delays from other tasks
+    uiStateMachine->handleKeypadInput();
+  }
+  
+  // Now process other subsystems
   if (rtcHandler != nullptr) {
     rtcHandler->task();
   }
@@ -211,7 +219,8 @@ void MainSystem::task() {
     authManager->checkSMSMasterTimeout();
   }
   
-  // UI State Machine task
+  // UI State Machine task (now handles display updates, etc.)
+  // Keypad input was already processed above for immediate response
   if (uiStateMachine != nullptr) {
     uiStateMachine->task();
   }

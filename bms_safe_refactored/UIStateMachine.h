@@ -88,6 +88,9 @@ public:
   // Main task function (call in loop)
   void task();
   
+  // Keypad input processing (call FIRST in main loop for immediate response)
+  void handleKeypadInput();
+  
   // State management
   DisplayState getCurrentState();
   void setState(DisplayState newState);
@@ -177,7 +180,6 @@ private:
   uint16_t alphaCounter;
   
   // Private methods - Keypad handling
-  void handleKeypadInput();
   char getPressedCharacter();
   bool isNewIndex();
   
