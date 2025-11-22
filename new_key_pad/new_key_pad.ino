@@ -2158,6 +2158,16 @@ void check_if_door_access_is_allowed(uint8_t user_id)
 uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
 int8_t first_user_verified =0;
 uint8_t user_bio_auth_fail_count = 0;
+
+// SMS dual authentication state for UNLOCK command
+bool sms_master_verified = false;
+unsigned long sms_master_verified_time = 0;
+#define SMS_MASTER_VERIFY_TIMEOUT 60000  // 60 seconds timeout for master verification
+
+// SMS dual authentication state
+// bool sms_master_verified = false;
+// unsigned long sms_master_verified_time = 0;
+// #define SMS_MASTER_VERIFY_TIMEOUT 60000  // 60 seconds timeout for master verification
 bool verify_dual_password(){
   uint8_t user_id_length = 0;
   user_id = parse_user_id_from_password(password, pass_length, &user_id_length);
@@ -4813,6 +4823,13 @@ uint32_t call_start_time = millis();
 uint32_t call_timeout = 20000;
 void gsm_housekeeping_task()
 {
+  // Check if SMS master verification has expired
+  if (sms_master_verified && (millis() - sms_master_verified_time > SMS_MASTER_VERIFY_TIMEOUT))
+  {
+    sms_master_verified = false;
+    Serial.println("SMS master verification timeout - reset");
+  }
+  
   if (queue_index > 0)
   {
     // Serial.print("queue index -- ");
@@ -5223,9 +5240,11 @@ uint8_t api_unlock_door()
   }
   
   // Format: &UNLOCK,<user_id>,<password>#
-  // cmd = "UNLOCK" (stored separately)
-  // para[0] = user_id (e.g., "01")
-  // para[1] = password (e.g., "1234")
+  // Two-step process:
+  // Step 1: &UNLOCK,01,<master_password># - Verifies master (user_id 1)
+  // Step 2: &UNLOCK,<user_id>,<user_password># - Verifies user and unlocks
+  // para[0] = user_id (e.g., "01" for master, "02" for user)
+  // para[1] = password
   // para_count = number of parameters (should be 2)
   
   if (para_count < 2)
@@ -5256,9 +5275,6 @@ uint8_t api_unlock_door()
     return CMD_NOT_FOUND;
   }
   
-  // Verify the user_id matches the mobile number owner
-  // (Optional: can add check here if needed)
-  
   // Parse password from para[1]
   if (para_len[1] < 4 || para_len[1] > 15)
   {
@@ -5272,31 +5288,66 @@ uint8_t api_unlock_door()
   copy_array(para[1], &password[0], para_len[1]);
   pass_length = para_len[1];
   
-  // Validate password for the specified user_id
-  if (is_password_valid(_user_id, &password[0], pass_length))
+  // STEP 1: If user_id is 1 (master), verify master password and set flag
+  if (_user_id == 1)
   {
-    if (check_if_user_is_allowed_in_time_slot(_user_id))
+    if (is_password_valid(1, &password[0], pass_length))
     {
-      user_id = _user_id;
-      door_open_count = door_open_count + 1;
-      write_door_open_count_to_eeprom(door_open_count);
-      if (user_id == 1)
-      {
-        display_screen = MASTER_MAIN;
-      }
-      else
-      {
-        display_screen = USER;
-      }
-      b_command_open_door = 1;
+      // Master password verified - set flag and timestamp
+      sms_master_verified = true;
+      sms_master_verified_time = millis();
+      Serial.println("SMS Master verified - waiting for user verification");
       SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_UNLOCK_CMD_ACCEPTED);
       return CMD_EXECUTED;
     }
+    else
+    {
+      // Master password failed - reset flag
+      sms_master_verified = false;
+      Serial.println("SMS Master password verification failed");
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+      return CMD_NOT_FOUND;
+    }
+  }
+  
+  // STEP 2: For non-master users, check if master was verified first
+  if (!sms_master_verified)
+  {
+    Serial.println("SMS Master not verified - unlock denied");
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
     return CMD_NOT_FOUND;
   }
+  
+  // Master is verified, now verify user password
+  if (is_password_valid(_user_id, &password[0], pass_length))
+  {
+    // Check time slot and holidays
+    if (check_if_user_is_allowed_in_time_slot(_user_id))
+    {
+      // Both master and user verified - unlock door
+      user_id = _user_id;
+      door_open_count = door_open_count + 1;
+      write_door_open_count_to_eeprom(door_open_count);
+      display_screen = USER;
+      b_command_open_door = 1;
+      
+      // Reset master verification flag after successful unlock
+      sms_master_verified = false;
+      
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_UNLOCK_CMD_ACCEPTED);
+      return CMD_EXECUTED;
+    }
+    else
+    {
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+      return CMD_NOT_FOUND;
+    }
+  }
   else
   {
+    // User password failed - reset master verification
+    sms_master_verified = false;
+    Serial.println("SMS User password verification failed");
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
     return CMD_NOT_FOUND;
   }
