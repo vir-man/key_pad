@@ -153,6 +153,8 @@ private:
   char inputMobileNumber[11];
   uint8_t inputMobileNumberLength;
   uint8_t inputMobileNumberCount;
+  char prevInputMobileNumber[11];  // For confirmation
+  bool mobileNumberNotMatched;
   
   // User ID input
   char userIDInput[3];

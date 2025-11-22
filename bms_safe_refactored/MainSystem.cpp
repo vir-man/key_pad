@@ -160,6 +160,74 @@ bool MainSystem::initialize() {
     return false;
   }
   
+  // Print EEPROM stored data on startup
+  Serial.println(F("\n=== EEPROM STORED DATA ==="));
+  
+  // Print user data
+  Serial.println(F("\n--- User Data ---"));
+  for (uint8_t i = 0; i < SystemConfig::MAX_USER_TO_BE_STORED; i++) {
+    uint8_t user_id = i + 1;
+    if (userManager->userExists(user_id)) {
+      Serial.print(F("User "));
+      Serial.print(user_id);
+      Serial.print(F(": Mobile="));
+      char mobile[SystemConfig::MOBILE_NUMBER_LENGTH + 1];
+      if (userManager->getMobileNumber(user_id, mobile) == ErrorCode::SUCCESS) {
+        Serial.print(mobile);
+      } else {
+        Serial.print(F("ERROR"));
+      }
+      Serial.print(F(", Password Length="));
+      Serial.println(userManager->getPasswordLength(user_id));
+      
+      // Print time slot if configured
+      if (userManager->isTimeSlotConfigured(user_id)) {
+        // Time slot details would need getter methods
+        Serial.print(F("  Time Slot: Configured"));
+        Serial.println();
+      }
+    }
+  }
+  
+  // Print door open count
+  Serial.print(F("\n--- Door Open Count: "));
+  Serial.print(doorController->getDoorOpenCount());
+  Serial.println(F(" ---"));
+  
+  // Print buzzer timeout
+  Serial.print(F("--- Buzzer Timeout: "));
+  Serial.print(eepromStorage->readBuzzerTimeout());
+  Serial.println(F(" minutes ---"));
+  
+  // Print holiday count
+  Serial.print(F("--- Holiday Count: "));
+  Serial.print(holidayManager->getHolidayCount());
+  Serial.println(F(" ---"));
+  
+  // Print holidays
+  uint8_t holiday_count = holidayManager->getHolidayCount();
+  if (holiday_count > 0) {
+    Serial.println(F("--- Holidays ---"));
+    for (uint8_t i = 0; i < holiday_count; i++) {
+      uint8_t date, month, year;
+      if (holidayManager->getHoliday(i, &date, &month, &year) == ErrorCode::SUCCESS) {
+        Serial.print(F("  Holiday "));
+        Serial.print(i + 1);
+        Serial.print(F(": "));
+        if (date < 10) Serial.print('0');
+        Serial.print(date);
+        Serial.print(F("/"));
+        if (month < 10) Serial.print('0');
+        Serial.print(month);
+        Serial.print(F("/"));
+        if (year < 10) Serial.print('0');
+        Serial.println(year);
+      }
+    }
+  }
+  
+  Serial.println(F("=== END EEPROM DATA ===\n"));
+  
   initialized = true;
   return true;
 }
@@ -211,6 +279,7 @@ void MainSystem::task() {
     gsmHandler->housekeepingTask();
   }
   
+  // SMS Parser task (now non-blocking - only runs when data is available)
   if (smsParser != nullptr) {
     smsParser->task();
   }

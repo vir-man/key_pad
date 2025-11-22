@@ -26,6 +26,7 @@ private:
   bool is_door_opening;
   bool is_door_closing;
   bool b_error_in_door_open;
+  bool b_error_in_door_close;
   bool b_command_open_door;
   bool b_command_close_door;
   
@@ -40,6 +41,9 @@ private:
   void dc_motor_on(int direction);
   bool is_door_aligned_by_ir();
   void updateSensorStates();
+  
+  // Friend function to access private members for UIStateMachine
+  friend class UIStateMachine;
   
 public:
   DoorController(EEPROMStorage* storage);
@@ -65,6 +69,8 @@ public:
   
   // Getters
   uint16_t getDoorOpenCount();
+  bool hasDoorError();
+  bool hasDoorCloseError();
 };
 
 #endif // DOOR_CONTROLLER_H

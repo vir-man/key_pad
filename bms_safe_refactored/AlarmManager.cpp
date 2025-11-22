@@ -184,6 +184,7 @@ void AlarmManager::task() {
     case GunPointState::SEND_MESSAGE:
       if (gsmHandler->getQueueSize() < 1) {
         gpa_state = GunPointState::CALL;
+        call_start_time = millis();  // Initialize timer when entering CALL state
       }
       break;
       

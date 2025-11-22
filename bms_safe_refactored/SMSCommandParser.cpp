@@ -51,39 +51,72 @@ uint16_t SMSCommandParser::readSerialToBuffer(Stream &stream, char *buffer, uint
   
   memset(buffer, 0, max_len);
   
-  while (index < max_len - 1) {
-    if (stream.available()) {
-      char c = stream.read();
-      buffer[index++] = c;
-      last_char_time = millis();
-      
-      if (c == '\n' || c == '\r') {
-        continue;  // Skip newlines
-      }
-      
-      if (strstr(buffer, "+CMT:") != nullptr) {
-        has_cmt = true;
-      }
-      
-      if (c == SystemConfig::MSG_END_CHAR) {  // '#'
-        found_end = true;
-        if (has_cmt) {
-          break;  // Complete message received
-        }
-      }
-    } else {
-      if (has_cmt && found_end) {
+  // Read available data immediately without blocking
+  while (index < max_len - 1 && stream.available()) {
+    char c = stream.read();
+    buffer[index++] = c;
+    last_char_time = millis();
+    
+    if (c == '\n' || c == '\r') {
+      continue;  // Skip newlines
+    }
+    
+    if (strstr(buffer, "+CMT:") != nullptr) {
+      has_cmt = true;
+    }
+    
+    if (c == SystemConfig::MSG_END_CHAR) {  // '#'
+      found_end = true;
+      if (has_cmt) {
         break;  // Complete message received
       }
-      if (millis() - last_char_time > IDLE_TIMEOUT_MS && index > 0) {
-        if (!has_cmt) {
-          break;  // No message start, timeout
+    }
+  }
+  
+  // If we have no data at all, return immediately (non-blocking)
+  if (index == 0) {
+    return 0;  // No data available - return immediately without blocking
+  }
+  
+  // If we have complete message, return it
+  if (has_cmt && found_end) {
+    buffer[index] = '\0';
+    return index;
+  }
+  
+  // If we have partial message (+CMT: but no #), wait briefly for more data
+  // However, we limit the wait to prevent blocking keypad input
+  // If message is incomplete, it will be read in next task() call when more data arrives
+  if (has_cmt && !found_end) {
+    // Only wait briefly (50ms max) if data is actively arriving
+    // This handles chunked SMS messages without blocking keypad
+    const unsigned long PARTIAL_WAIT_MS = 50;  // Maximum wait for partial message (50ms)
+    unsigned long partial_start = millis();
+    uint8_t check_count = 0;
+    
+    while (index < max_len - 1 && (millis() - start_time) < TIMEOUT_MS && 
+           (millis() - partial_start) < PARTIAL_WAIT_MS && check_count < 10) {
+      check_count++;
+      if (stream.available()) {
+        char c = stream.read();
+        buffer[index++] = c;
+        last_char_time = millis();
+        partial_start = millis();  // Reset wait timer when data arrives
+        check_count = 0;  // Reset check count when data arrives
+        
+        if (c == '\n' || c == '\r') {
+          continue;
         }
+        
+        if (c == SystemConfig::MSG_END_CHAR) {  // '#'
+          found_end = true;
+          break;  // Complete message received
+        }
+      } else {
+        // No data available - return immediately to allow keypad processing
+        // Partial message will be completed in next task() call when more data arrives
+        break;  // Return immediately - non-blocking
       }
-      if (millis() - start_time > TIMEOUT_MS) {
-        break;  // Total timeout
-      }
-      delay(10);
     }
   }
   
@@ -647,7 +680,13 @@ void SMSCommandParser::task() {
     return;
   }
   
-  // Read serial data
+  // CRITICAL: Only read if data is available (like original gsm_module_task checks available() first)
+  // This prevents blocking when no SMS data is present, allowing keypad to remain responsive
+  if (gsmSerial->available() == 0) {
+    return;  // No data available - return immediately without blocking
+  }
+  
+  // Read serial data only when data is available
   uint16_t len = readSerialToBuffer(*gsmSerial, serial_buffer, SystemConfig::SMS_SERIAL_BUFFER_SIZE);
   if (len == 0) {
     return;

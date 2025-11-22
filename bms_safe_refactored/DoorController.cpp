@@ -8,9 +8,9 @@
 DoorController::DoorController(EEPROMStorage* storage) 
   : eeprom(storage), current_state(DoorState::CLOSED),
     is_door_opening(false), is_door_closing(false),
-    b_error_in_door_open(false), b_command_open_door(false),
-    b_command_close_door(false), door_open_start_time(0),
-    door_close_start_time(0) {
+    b_error_in_door_open(false), b_error_in_door_close(false),
+    b_command_open_door(false), b_command_close_door(false), 
+    door_open_start_time(0), door_close_start_time(0) {
   door_sensor_state[0] = false;
   door_sensor_state[1] = false;
 }
@@ -171,6 +171,17 @@ uint16_t DoorController::getDoorOpenCount() {
   return 0;
 }
 
+bool DoorController::hasDoorError() {
+  return b_error_in_door_open || (current_state == DoorState::ERROR);
+}
+
+bool DoorController::hasDoorCloseError() {
+  // Check if door is in ERROR state while closing or if close timeout occurred
+  return ((current_state == DoorState::ERROR) && (is_door_closing || !is_door_closing)) ||
+         (!is_door_closing && !isDoorClosed() && door_close_start_time > 0 && 
+          (millis() - door_close_start_time > SystemConfig::DOOR_CLOSE_TIMEOUT));
+}
+
 void DoorController::task() {
   updateSensorStates();
   
@@ -209,15 +220,17 @@ void DoorController::task() {
       dc_motor_stop();
       is_door_closing = false;
       current_state = DoorState::CLOSED;
-    } else if (millis() - door_close_start_time > SystemConfig::DOOR_OPEN_TIMEOUT) {
-      // Timeout
+    } else if (millis() - door_close_start_time > SystemConfig::DOOR_CLOSE_TIMEOUT) {
+      // Timeout - using DOOR_CLOSE_TIMEOUT (5 seconds) instead of DOOR_OPEN_TIMEOUT
       dc_motor_stop();
       is_door_closing = false;
+      b_error_in_door_close = true;
       current_state = DoorState::ERROR;
     } else if (!is_door_aligned_by_ir()) {
       // Sensor misaligned
       dc_motor_stop();
       is_door_closing = false;
+      b_error_in_door_close = true;
       current_state = DoorState::ERROR;
     }
   }
