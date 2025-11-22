@@ -5,6 +5,7 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
 #include <avr/wdt.h>
+#include <avr/pgmspace.h>
 #include <Adafruit_Fingerprint.h>
 #include <SD.h>
 #include "pitches.h"
@@ -60,7 +61,8 @@ const uint16_t melody[] PROGMEM = {
     NOTE_C4, NOTE_G3, NOTE_G3, NOTE_A3, NOTE_G3, 0, NOTE_B3, NOTE_C4};
 
 // note durations: 4 = quarter note, 8 = eighth note, etc.:
-int noteDurations[] = {
+// Moved to PROGMEM to save 16 bytes RAM
+const int noteDurations[] PROGMEM = {
     4, 8, 8, 4, 4, 4, 4, 4};
 const int buzzer_pin = 45;
 bool b_buzzer_on = 0;
@@ -285,58 +287,62 @@ void sd_card_task()
 #define OPEN 1
 void update_log_entry(uint16_t sr_no, uint8_t _user_id, bool dir)
 {
-  String dataString = "";
-  // int date, month, year, hour, minute, second;
+  // Use char array instead of String to save memory
+  char dataString[60];  // Fixed size buffer instead of dynamic String
+  int pos = 0;
+  
+  // Format serial number (3 digits)
   if (sr_no < 10)
   {
-    dataString = dataString + "00" + sr_no;
+    dataString[pos++] = '0';
+    dataString[pos++] = '0';
+    pos += sprintf(&dataString[pos], "%d", sr_no);
   }
   else if (sr_no < 100)
   {
-    dataString = dataString + "0" + sr_no;
+    dataString[pos++] = '0';
+    pos += sprintf(&dataString[pos], "%d", sr_no);
   }
   else
   {
-    dataString = dataString + sr_no;
+    pos += sprintf(&dataString[pos], "%d", sr_no);
   }
-  dataString = dataString + TAB_STRING + "0" + _user_id;
-  dataString = dataString + TAB_STRING;
-  if (date < 10)
-    dataString = dataString + "0";
-  dataString = dataString + date + "/";
-
-  if (month < 10)
-    dataString = dataString + "0";
-  dataString = dataString + month + "/" + year;
-
-  dataString = dataString + TAB_STRING;
-  if (hour < 10)
-    dataString = dataString + "0";
-  dataString = dataString + hour + ":";
-
-  if (minute < 10)
-    dataString = dataString + "0";
-  dataString = dataString + minute + ":";
-
-  if (second < 10)
-    dataString = dataString + "0";
-  dataString = dataString + second;
-
-  if (dir == CLOSE)
-  {
-    dataString = dataString + TAB_STRING + "C";
-  }
-  else if (dir == OPEN)
-  {
-    dataString = dataString + TAB_STRING + "O";
-  }
-
-  // Serial.println(dataString);
-  // return;
-  // myFile.println(dataString);
-  // myFile.print("LOGGING DATE " + date + "/" + month + "/" + year + "\r\r" + hour + ":" + minute + ":" + second + "\n");
-  // myFile.println("****************************************");
-  // myFile.print("SR.\rUSER\rDATE\r\rTIME\r\rREMARKS\n");
+  
+  // Add tab and user ID
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", _user_id);
+  
+  // Add tab
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  
+  // Format date
+  if (date < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d/", date);
+  if (month < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d/", month);
+  if (year < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", year);
+  
+  // Add tab
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  
+  // Format time
+  if (hour < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d:", hour);
+  if (minute < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d:", minute);
+  if (second < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", second);
+  
+  // Add tab and direction
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  dataString[pos++] = (dir == CLOSE) ? 'C' : 'O';
+  dataString[pos] = '\0';
 
   // open the file. note that only one file can be open at a time,
   // so you have to close this one before opening another.
@@ -403,7 +409,7 @@ void copy_data_from_sd_card_to_usb_flash_drive()
 {
   //  static File dataFile;// = SD.open("BMS-LOG1.TXT", FILE_WRITE);
   bool b_flash_drive_file_available = 0;
-  String input_string_from_sd_card;
+  // Removed unused String to save memory
   char input_string_char_array[80];  // Reduced from 100 to save 20 bytes RAM
   // Serial.println("Coming 1");
 
@@ -495,7 +501,7 @@ void printInfo(const char info[])
 #define ALPHA_SPEED_LEN_COUNT 4
 #define BUZZER_TIMEOUT_LEN_COUNT 4
 #define DOOR_OPEN_COUND_LEN_COUNT 4
-#define MAX_HOLIDAYS 50
+#define MAX_HOLIDAYS 30  // Reduced from 50 to save 60 bytes RAM
 #define HOLIDAY_DATA_SIZE 3  // date (1 byte) + month (1 byte) + year (1 byte)
 #define HOLIDAY_COUNT_SIZE 1  // 1 byte to store count
 
@@ -1131,7 +1137,8 @@ const byte COLS = 4; // columns
 // define the symbols on the buttons of the keypads
 
 uint8_t times_prssd = 0;
-char num_to_alpha[10][3] = {{'Y', 'Z'},
+// Moved to PROGMEM to save 30 bytes RAM
+const char num_to_alpha[10][3] PROGMEM = {{'Y', 'Z'},
                             {'A', 'B', 'C'},
                             {'D', 'E', 'F'},
                             {'G', 'H', 'I'},
@@ -1485,7 +1492,7 @@ bool is_new_index()
       prev_rels_time = rels_time;
       times_prssd = 0;
       prev_key = key;
-      get_character = num_to_alpha[temp_key][times_prssd];
+      get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd]);
       return true;
     }
     else if ((rels_time - prev_rels_time) < alpha_speed)
@@ -1494,11 +1501,11 @@ bool is_new_index()
       times_prssd++;
       if (temp_key && temp_key <= 6)
       {
-        get_character = num_to_alpha[temp_key][times_prssd % 3];
+        get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd % 3]);
       }
       else
       {
-        get_character = num_to_alpha[temp_key][times_prssd % 2];
+        get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd % 2]);
       }
       return false;
     }
@@ -4742,11 +4749,11 @@ char msg;
 char call;
 
 // Buffer for reading serial data (replaced String a, b)
-char serial_buffer[200];  // Increased size for GSM responses
+char serial_buffer[150];  // Reduced from 200 to save 50 bytes RAM
 uint8_t serial_buffer_index = 0;
 uint8_t i = 0;
 
-char char_array[100];  // Reduced from 200 to save 100 bytes RAM
+char char_array[80];  // Reduced from 100 to save 20 bytes RAM
 // uint8_t received_mobile_number[10];
 char received_mobile_number_in_char[11];
 // char received_mnic[10];  // Removed unused buffer to save 10 bytes RAM
@@ -4754,7 +4761,7 @@ int8_t received_mobile_number_index1 = -1;
 
 #define MIN_CMD_LEN 3
 #define MAX_CMD_LEN 20
-#define MAX_PARA_LEN 20  // Reduced from 24 to save 20 bytes RAM (para array: 5*20=100 vs 5*24=120)
+#define MAX_PARA_LEN 16  // Reduced from 20 to save 20 bytes RAM (para array: 5*16=80 vs 5*20=100)
 #define CMD_SEPARATOR ','
 
 #define MSG_START_CHAR '&'
