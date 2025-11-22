@@ -117,6 +117,7 @@ bool MainSystem::initialize() {
   
   // Initialize Keypad (only once)
   if (keypadInstance == nullptr) {
+    Serial.println(F("[MainSystem] Creating keypad instance..."));
     static char keys[4][4] = {
       {'1', '2', '3', 'x'},
       {'4', '5', '6', '^'},
@@ -135,7 +136,22 @@ bool MainSystem::initialize() {
       SystemConfig::KEYPAD_COL_2,
       SystemConfig::KEYPAD_COL_3
     };
+    Serial.print(F("[MainSystem] Row pins: "));
+    for (int i = 0; i < 4; i++) {
+      Serial.print(rowPins[i]);
+      if (i < 3) Serial.print(F(", "));
+    }
+    Serial.println();
+    Serial.print(F("[MainSystem] Col pins: "));
+    for (int i = 0; i < 4; i++) {
+      Serial.print(colPins[i]);
+      if (i < 3) Serial.print(F(", "));
+    }
+    Serial.println();
     keypadInstance = new Adafruit_Keypad(makeKeymap(keys), rowPins, colPins, 4, 4);
+    Serial.println(F("[MainSystem] Keypad instance created"));
+  } else {
+    Serial.println(F("[MainSystem] Keypad instance already exists"));
   }
   
   // Initialize UI State Machine

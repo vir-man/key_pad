@@ -82,7 +82,7 @@ public:
   static constexpr uint32_t DOOR_OPEN_ERROR_TIMEOUT = 5000;
   static constexpr uint32_t DOOR_CLOSE_TIMEOUT = 5000;
   static constexpr uint32_t GUN_POINT_PRESS_TIMEOUT = 3000;
-  static constexpr uint32_t DISPLAY_ON_TIMEOUT = 30000;
+  static constexpr uint32_t DISPLAY_ON_TIMEOUT = 3600000UL; // 60 minutes in milliseconds (60 * 60 * 1000)
   static constexpr uint32_t SMS_MASTER_VERIFY_TIMEOUT = 60000;
   static constexpr uint32_t TEMPERATURE_READ_INTERVAL = 10000;
   static constexpr uint32_t RTC_UPDATE_INTERVAL = 60000;  // 1 minute
