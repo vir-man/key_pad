@@ -1045,27 +1045,34 @@ bool UIStateMachine::verifyDualPassword() {
     displayError(PSTR("Invld Password!!"));
     
     if (firstUserVerified == 1) {
+      // Increment failure count (like original code)
       userBioAuthFailCount++;
-      if (userBioAuthFailCount >= 1) {
-        // Send alert
-        AlarmManager* alarm = mainSystem->getAlarmManager();
-        if (alarm != nullptr) {
-          // TODO: Send auth fail alert
+      
+      // BUG FIX: Check for >= 2 instead of >= 1 to allow one retry before sending alert
+      // First failure (count=1): allow retry on same screen
+      // Second failure (count=2): send alert and return to MAIN
+      if (userBioAuthFailCount >= 2) {
+        // Send alert to master user after 2nd failure (like original comment says)
+        GSMHandler* gsm = mainSystem->getGSMHandler();
+        if (gsm != nullptr) {
+          // Send AUTH_FAIL_MSG to master user (like original: update_queue(AUTH_FAIL_MSG, MASTER_USER_ID))
+          gsm->addToQueue(SystemConfig::AUTH_FAIL_MSG, SystemConfig::MASTER_USER_ID);
         }
-        userBioAuthFailCount = 0;
+        userBioAuthFailCount = 0;  // Reset after sending alert
         setState(MAIN);
         resetPasswordInput();
         firstUserVerified = 0;
       } else {
-        // Retry on same screen
+        // First failure - allow retry on same screen (stay on USER PASS/BIO screen)
         lcd->clear();
         lcd->setCursor(0, 0);
         lcd->print(F("USER PASS/BIO :"));
         passLength = 0;
         memset(password, '\0', sizeof(password));
-        isDisplayed = true;
+        isDisplayed = false;  // Allow screen to redraw
       }
     } else {
+      // Failure on MAIN screen (not in USER PASS/BIO state) - return to MAIN
       setState(MAIN);
       resetPasswordInput();
       firstUserVerified = 0;
