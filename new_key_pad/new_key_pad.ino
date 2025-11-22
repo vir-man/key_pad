@@ -495,6 +495,9 @@ void printInfo(const char info[])
 #define ALPHA_SPEED_LEN_COUNT 4
 #define BUZZER_TIMEOUT_LEN_COUNT 4
 #define DOOR_OPEN_COUND_LEN_COUNT 4
+#define MAX_HOLIDAYS 50
+#define HOLIDAY_DATA_SIZE 3  // date (1 byte) + month (1 byte) + year (1 byte)
+#define HOLIDAY_COUNT_SIZE 1  // 1 byte to store count
 
 // Compute EEPROM addresses on-the-fly to save RAM
 #define USER_BLOCK_SIZE (1 /*is_pw*/ + MOBILE_NUMBER_LENGTH + 1 /*pw len*/ + 1 /*pw start*/ + PASSWORD_STORE_COUNT + 1 /*is_in_out*/ + IN_OUT_TIME_LEN_COUNT /*in*/ + IN_OUT_TIME_LEN_COUNT /*out*/ + 1 /*padding*/)
@@ -512,6 +515,8 @@ static inline uint16_t eeprom_addr_after_users(void) { return eeprom_addr_out_ti
 size_t alpha_speed_start_address;
 size_t door_open_count_start_address;
 size_t buzzer_timeout_start_address;
+size_t holiday_count_start_address;
+size_t holiday_data_start_address;
 
 bool is_password_configured[MAX_USER_TO_BE_STORED] = {0};
 char mobile_number[MAX_USER_TO_BE_STORED][MOBILE_NUMBER_LENGTH];
@@ -527,6 +532,15 @@ uint8_t out_time_minute[MAX_USER_TO_BE_STORED] = {0};
 uint16_t alpha_speed;
 uint16_t buzzer_timeout;
 uint16_t door_open_count;
+
+// Holiday management
+uint8_t holiday_count = 0;
+struct Holiday {
+  uint8_t date;
+  uint8_t month;
+  uint8_t year;
+};
+Holiday holidays[MAX_HOLIDAYS];
 
 char _mobile_number[10] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0'};
 char _password[15] = {/*'A', 'B',*/ '1', '2', '3', '4', '5', '6', '7', '8', '9', '3', '1', '2', 'Z', 'A', 'B'};
@@ -633,6 +647,8 @@ void set_eeprom_addresses()
   alpha_speed_start_address = eeprom_addr_after_users();
   door_open_count_start_address = alpha_speed_start_address + ALPHA_SPEED_LEN_COUNT;
   buzzer_timeout_start_address = door_open_count_start_address + BUZZER_TIMEOUT_LEN_COUNT;
+  holiday_count_start_address = buzzer_timeout_start_address + BUZZER_TIMEOUT_LEN_COUNT;
+  holiday_data_start_address = holiday_count_start_address + HOLIDAY_COUNT_SIZE;
   /*
   for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
   {
@@ -738,6 +754,96 @@ uint16_t read_door_open_count_to_eeprom()
   // Serial.println(door_open_count);
   return door_open_count;
 }
+
+// Holiday EEPROM functions
+void write_holidays_to_eeprom()
+{
+  EEPROM.write(holiday_count_start_address, holiday_count);
+  for (uint8_t i = 0; i < holiday_count && i < MAX_HOLIDAYS; i++)
+  {
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    EEPROM.write(addr, holidays[i].date);
+    EEPROM.write(addr + 1, holidays[i].month);
+    EEPROM.write(addr + 2, holidays[i].year);
+  }
+}
+
+void read_holidays_from_eeprom()
+{
+  holiday_count = EEPROM.read(holiday_count_start_address);
+  if (holiday_count > MAX_HOLIDAYS)
+  {
+    holiday_count = 0;
+    write_holidays_to_eeprom();
+  }
+  
+  for (uint8_t i = 0; i < holiday_count && i < MAX_HOLIDAYS; i++)
+  {
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    holidays[i].date = EEPROM.read(addr);
+    holidays[i].month = EEPROM.read(addr + 1);
+    holidays[i].year = EEPROM.read(addr + 2);
+  }
+}
+
+bool is_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  for (uint8_t i = 0; i < holiday_count; i++)
+  {
+    if (holidays[i].date == _date && holidays[i].month == _month && holidays[i].year == _year)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool add_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  if (holiday_count >= MAX_HOLIDAYS)
+  {
+    return false; // No space
+  }
+  
+  // Check if holiday already exists
+  if (is_holiday(_date, _month, _year))
+  {
+    return false; // Already exists
+  }
+  
+  // Validate date
+  if (_date == 0 || _date > 31 || _month == 0 || _month > 12 || _year > 99)
+  {
+    return false; // Invalid date
+  }
+  
+  holidays[holiday_count].date = _date;
+  holidays[holiday_count].month = _month;
+  holidays[holiday_count].year = _year;
+  holiday_count++;
+  write_holidays_to_eeprom();
+  return true;
+}
+
+bool remove_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  for (uint8_t i = 0; i < holiday_count; i++)
+  {
+    if (holidays[i].date == _date && holidays[i].month == _month && holidays[i].year == _year)
+    {
+      // Shift remaining holidays
+      for (uint8_t j = i; j < holiday_count - 1; j++)
+      {
+        holidays[j] = holidays[j + 1];
+      }
+      holiday_count--;
+      write_holidays_to_eeprom();
+      return true;
+    }
+  }
+  return false; // Not found
+}
+
 void update_data_from_eeprom()
 {
   for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
@@ -747,6 +853,7 @@ void update_data_from_eeprom()
   read_alpha_speed_to_eeprom();
   read_buzzer_timeout_to_eeprom();
   read_door_open_count_to_eeprom();
+  read_holidays_from_eeprom();
 }
 
 bool update_eeprom_data_at_index(uint8_t index, char *mobile_number_to_add, char *password_to_add, uint8_t len)
@@ -1941,6 +2048,14 @@ uint8_t master_reset_pw[MASTER_PW_LEN] = {'9', '9', '2', '5', '3', '6', '6', '1'
 
 bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
 {
+  // First check if today is a holiday - if so, deny access
+  update_date_time_from_rtc();
+  if (is_holiday(date, month, year))
+  {
+    Serial.println("Holiday - No Access Allowed!");
+    return 0;
+  }
+  
   if (is_in_out_time_configured[_user_id])
   {
     hour = rtc.hour();
@@ -1953,14 +2068,13 @@ bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
     if (now_time >= in_time && now_time <= out_time)
     {
       Serial.println("Access Allowed!");
+      return 1;
     }
     else
     {
       Serial.println("No Access Allowed!");
+      return 0;
     }
-    // if(hour == in_time_hour[_user_id] && minute >in_time_minute)
-    // if((hour =>in_time_hour[_user_id] && hour <=out_time_hour[_user_id] && (minute =>in_time_minute[_user_id] && minute <=out_time_minute[_user_id])
-    return 1;
   }
   else
   {
@@ -3193,21 +3307,129 @@ void buzzer_input_fsm()
     }
   }
 }
-void alpha_input_fsm()
+// Holiday menu states
+#define HOLIDAY_MENU_MAIN 0
+#define HOLIDAY_MENU_ADD 1
+#define HOLIDAY_MENU_REMOVE 2
+#define HOLIDAY_MENU_VIEW 3
+#define HOLIDAY_MENU_INPUT_DATE 4
+#define HOLIDAY_MENU_INPUT_MONTH 5
+#define HOLIDAY_MENU_INPUT_YEAR 6
+
+uint8_t holiday_menu_state = HOLIDAY_MENU_MAIN;
+uint8_t holiday_input_date = 0;
+uint8_t holiday_input_month = 0;
+uint8_t holiday_input_year = 0;
+uint8_t holiday_input_counter = 0;
+uint8_t holiday_view_index = 0;
+bool holiday_is_remove_mode = false; // Track if we're in ADD or REMOVE mode
+
+void holiday_menu_fsm()
 {
   if (!is_displayed)
   {
     is_displayed = 1;
     lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("  SELECT ALPHA  ");
-    lcd.setCursor(0, 1);
-    lcd.print("   SPEED: ");
-    if (b_alpha_speed_updated)
+    
+    switch (holiday_menu_state)
     {
-      alpha_counter++;
-      b_alpha_speed_updated = 0;
-      lcd.print(input_alpha_speed);
+    case HOLIDAY_MENU_MAIN:
+      lcd.setCursor(0, 0);
+      lcd.print("  HOLIDAY MENU  ");
+      lcd.setCursor(0, 1);
+      lcd.print("1:ADD 2:REM 3:VIEW");
+      break;
+      
+    case HOLIDAY_MENU_ADD:
+      lcd.setCursor(0, 0);
+      lcd.print("  ADD HOLIDAY   ");
+      lcd.setCursor(0, 1);
+      lcd.print("DATE: ");
+      if (holiday_input_date > 0)
+      {
+        lcd.print(holiday_input_date);
+      }
+      break;
+      
+    case HOLIDAY_MENU_INPUT_MONTH:
+      lcd.setCursor(0, 0);
+      if (holiday_is_remove_mode)
+      {
+        lcd.print(" REMOVE HOLIDAY ");
+      }
+      else
+      {
+        lcd.print("  ADD HOLIDAY   ");
+      }
+      lcd.setCursor(0, 1);
+      lcd.print("MONTH: ");
+      if (holiday_input_month > 0)
+      {
+        lcd.print(holiday_input_month);
+      }
+      break;
+      
+    case HOLIDAY_MENU_INPUT_YEAR:
+      lcd.setCursor(0, 0);
+      if (holiday_is_remove_mode)
+      {
+        lcd.print(" REMOVE HOLIDAY ");
+      }
+      else
+      {
+        lcd.print("  ADD HOLIDAY   ");
+      }
+      lcd.setCursor(0, 1);
+      lcd.print("YEAR: ");
+      if (holiday_input_year > 0)
+      {
+        lcd.print(holiday_input_year);
+      }
+      break;
+      
+    case HOLIDAY_MENU_REMOVE:
+      lcd.setCursor(0, 0);
+      lcd.print(" REMOVE HOLIDAY ");
+      lcd.setCursor(0, 1);
+      lcd.print("DATE: ");
+      if (holiday_input_date > 0)
+      {
+        lcd.print(holiday_input_date);
+      }
+      break;
+      
+    case HOLIDAY_MENU_VIEW:
+      if (holiday_count == 0)
+      {
+        lcd.setCursor(0, 0);
+        lcd.print("  NO HOLIDAYS   ");
+        lcd.setCursor(0, 1);
+        lcd.print("   CONFIGURED   ");
+      }
+      else
+      {
+        // Ensure index is within bounds
+        if (holiday_view_index >= holiday_count)
+        {
+          holiday_view_index = holiday_count - 1;
+        }
+        
+        lcd.setCursor(0, 0);
+        lcd.print("HOLIDAY ");
+        lcd.print(holiday_view_index + 1);
+        lcd.print("/");
+        lcd.print(holiday_count);
+        lcd.setCursor(0, 1);
+        if (holidays[holiday_view_index].date < 10) lcd.print("0");
+        lcd.print(holidays[holiday_view_index].date);
+        lcd.print("/");
+        if (holidays[holiday_view_index].month < 10) lcd.print("0");
+        lcd.print(holidays[holiday_view_index].month);
+        lcd.print("/");
+        if (holidays[holiday_view_index].year < 10) lcd.print("0");
+        lcd.print(holidays[holiday_view_index].year);
+      }
+      break;
     }
   }
   else
@@ -3215,54 +3437,272 @@ void alpha_input_fsm()
     if (is_new_key)
     {
       is_new_key = 0;
-      switch (key)
+      
+      switch (holiday_menu_state)
       {
-      case CANCEL:
-        if (alpha_counter == 0)
+      case HOLIDAY_MENU_MAIN:
+        switch (key)
         {
-          pass_length = 0;
+        case '1':
+          holiday_menu_state = HOLIDAY_MENU_ADD;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+          break;
+        case '2':
+          holiday_menu_state = HOLIDAY_MENU_REMOVE;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = true;
+          is_displayed = 0;
+          break;
+        case '3':
+          holiday_menu_state = HOLIDAY_MENU_VIEW;
+          holiday_view_index = 0;
+          is_displayed = 0;
+          break;
+        case CANCEL:
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
           is_displayed = 0;
           display_screen = MASTER_INPUT_STATE;
-        }
-        else
-        {
-          alpha_counter = 0;
-          is_displayed = 0;
-          b_alpha_speed_updated = 0;
-          input_alpha_speed = 0;
+          break;
         }
         break;
-      case ENTER:
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("  SELECT ALPHA");
-        lcd.setCursor(0, 1);
-        input_alpha_speed = input_alpha_speed + 800;
-        write_alpha_speed_to_eeprom(input_alpha_speed);
-        //@TODO : Needs to udpate alpha speed to EEPROM
-        lcd.print("    UPDATED.  ");
-        my_delay(3);
-        is_displayed = 0;
-        alpha_speed = input_alpha_speed;
-        display_screen = MASTER_MAIN;
-        break;
-      default:
-        b_alpha_speed_updated = uint8_t(is_new_index());
-        if (b_alpha_speed_updated)
+        
+      case HOLIDAY_MENU_ADD:
+        // Input date
+        if (key >= '0' && key <= '9')
         {
-          uint8_t temp_key = uint8_t(key) - 48;
-          if (temp_key <= 9)
+          uint8_t digit = key - '0';
+          if (holiday_input_date == 0)
           {
-            b_alpha_speed_updated = 1;
-            input_alpha_speed = input_alpha_speed + (temp_key * 10);
-            if (input_alpha_speed > 2000)
+            holiday_input_date = digit;
+          }
+          else
+          {
+            holiday_input_date = holiday_input_date * 10 + digit;
+            if (holiday_input_date > 31) holiday_input_date = 31;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_date > 0)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_MONTH;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_INPUT_MONTH:
+        // Input month (works for both ADD and REMOVE)
+        if (key >= '0' && key <= '9')
+        {
+          uint8_t digit = key - '0';
+          if (holiday_input_month == 0)
+          {
+            holiday_input_month = digit;
+          }
+          else
+          {
+            holiday_input_month = holiday_input_month * 10 + digit;
+            if (holiday_input_month > 12) holiday_input_month = 12;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_month > 0)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_YEAR;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          // Go back to previous state (ADD or REMOVE)
+          if (holiday_is_remove_mode)
+          {
+            holiday_menu_state = HOLIDAY_MENU_REMOVE;
+          }
+          else
+          {
+            holiday_menu_state = HOLIDAY_MENU_ADD;
+          }
+          holiday_input_month = 0;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_INPUT_YEAR:
+        // Input year (works for both ADD and REMOVE)
+        if (key >= '0' && key <= '9')
+        {
+          uint8_t digit = key - '0';
+          if (holiday_input_year == 0)
+          {
+            holiday_input_year = digit;
+          }
+          else
+          {
+            holiday_input_year = holiday_input_year * 10 + digit;
+            if (holiday_input_year > 99) holiday_input_year = 99;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_year >= 0)
+        {
+          if (holiday_is_remove_mode)
+          {
+            // Remove holiday
+            if (remove_holiday(holiday_input_date, holiday_input_month, holiday_input_year))
             {
-              input_alpha_speed = 2000;
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print(" HOLIDAY REMOVED");
+              lcd.setCursor(0, 1);
+              lcd.print("   SUCCESSFULLY ");
+              my_delay(2);
             }
+            else
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("  HOLIDAY NOT   ");
+              lcd.setCursor(0, 1);
+              lcd.print("     FOUND      ");
+              my_delay(2);
+            }
+          }
+          else
+          {
+            // Add holiday
+            if (add_holiday(holiday_input_date, holiday_input_month, holiday_input_year))
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("  HOLIDAY ADDED ");
+              lcd.setCursor(0, 1);
+              lcd.print("   SUCCESSFULLY ");
+              my_delay(2);
+            }
+            else
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("  FAILED TO ADD ");
+              lcd.setCursor(0, 1);
+              lcd.print("  HOLIDAY/EXISTS ");
+              my_delay(2);
+            }
+          }
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_MONTH;
+          holiday_input_year = 0;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_REMOVE:
+        // Input date
+        if (key >= '0' && key <= '9')
+        {
+          uint8_t digit = key - '0';
+          if (holiday_input_date == 0)
+          {
+            holiday_input_date = digit;
+          }
+          else
+          {
+            holiday_input_date = holiday_input_date * 10 + digit;
+            if (holiday_input_date > 31) holiday_input_date = 31;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_date > 0)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_MONTH;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_VIEW:
+        if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_view_index = 0;
+          is_displayed = 0;
+        }
+        else if (key == '1' || key == '4') // Previous holiday
+        {
+          if (holiday_view_index > 0)
+          {
+            holiday_view_index--;
+            is_displayed = 0;
+          }
+        }
+        else if (key == '2' || key == '6') // Next holiday
+        {
+          // Ensure we can navigate forward
+          if (holiday_count > 0 && holiday_view_index < holiday_count - 1)
+          {
+            holiday_view_index++;
+            is_displayed = 0;
+          }
+          else if (holiday_count > 0 && holiday_view_index >= holiday_count)
+          {
+            // Safety: if index is out of bounds, reset to last valid index
+            holiday_view_index = holiday_count - 1;
+            is_displayed = 0;
+          }
+        }
+        else if (key == '3') // Jump to first
+        {
+          if (holiday_count > 0)
+          {
+            holiday_view_index = 0;
+            is_displayed = 0;
+          }
+        }
+        else if (key == '5') // Jump to last
+        {
+          if (holiday_count > 0)
+          {
+            holiday_view_index = holiday_count - 1;
             is_displayed = 0;
           }
         }
         break;
+        
       }
     }
   }
@@ -3928,8 +4368,15 @@ void lcd_task()
         break;
       case '6':
         is_displayed = 0;
-        alpha_counter = 0;
-        display_screen = ALPHA_SCREEN;
+        // Reset holiday menu state when entering
+        holiday_menu_state = HOLIDAY_MENU_MAIN;
+        holiday_input_date = 0;
+        holiday_input_month = 0;
+        holiday_input_year = 0;
+        holiday_input_counter = 0;
+        holiday_view_index = 0;
+        holiday_is_remove_mode = false;
+        display_screen = HOLIDAY_SCREEN;
         break;
       case '7':
         is_displayed = 0;
@@ -4071,8 +4518,8 @@ void lcd_task()
   case MASTER_BACKUP:
     break;
 
-  case ALPHA_SCREEN:
-    alpha_input_fsm();
+  case HOLIDAY_SCREEN:
+    holiday_menu_fsm();
     break;
 
   case BACKUP_SCREEN:

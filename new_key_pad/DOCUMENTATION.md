@@ -31,6 +31,7 @@ This is an Arduino-based security system called **"BMS SAFE"** for a keypad-cont
 - **Vibration Detection**: Vibration sensor with alarm capability
 - **Gun Point Activation**: Emergency activation system with alerts
 - **Time-based Access Control**: Configurable in/out time slots per user
+- **Holiday Management**: Configure holidays for access denial (up to 50 holidays)
 - **Battery Monitoring**: Battery percentage display and monitoring
 - **EEPROM Storage**: Persistent storage for user data, passwords, and settings
 - **LCD Display**: 16x2 character LCD for user interface
@@ -268,7 +269,7 @@ MASTER_DAT_TIM (5)           - Master date/time menu
 MASTER_BACKUP (6)            - Master backup menu
 USER (7)                     - User main screen
 USER_PASSWORD (8)            - User password screen
-ALPHA_SCREEN (9)             - Alpha input screen
+HOLIDAY_SCREEN (9)           - Holiday management screen
 BACKUP_SCREEN (10)           - Backup screen
 ```
 
@@ -339,9 +340,10 @@ Checks if user has permission to access door.
 
 #### `bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)`
 Validates if current time is within user's allowed access window.
+- **First checks if today is a holiday** - if so, denies access immediately (returns 0)
 - Checks if time-based access is configured for user
 - Compares current time (hour*100 + minute) with `in_time` and `out_time`
-- Returns true if access allowed (currently always returns 1 - time check logic needs implementation)
+- Returns true if access allowed, false if denied (holiday or outside time window)
 
 #### `void open_door()`
 Initiates door opening sequence.
@@ -375,6 +377,44 @@ Removes user password from EEPROM.
 
 #### `uint8_t parse_user_id_from_password(char *password, uint8_t pass_len, uint8_t *user_id_length)`
 Extracts user ID from password string format (e.g., "1XXXX" where 1 is user ID).
+
+### Holiday Management Functions
+
+#### `bool is_holiday(uint8_t date, uint8_t month, uint8_t year)`
+Checks if a given date is configured as a holiday.
+- Searches through stored holidays array
+- Returns true if date matches a configured holiday
+
+#### `bool add_holiday(uint8_t date, uint8_t month, uint8_t year)`
+Adds a new holiday to the system.
+- Validates date (1-31), month (1-12), year (0-99)
+- Checks for duplicates before adding
+- Stores in EEPROM if successful
+- Returns true on success, false if invalid or duplicate
+
+#### `bool remove_holiday(uint8_t date, uint8_t month, uint8_t year)`
+Removes a holiday from the system.
+- Searches for matching holiday
+- Removes from array and updates EEPROM
+- Returns true if found and removed, false if not found
+
+#### `void write_holidays_to_eeprom()`
+Writes all holidays to EEPROM storage.
+- Stores holiday count and all holiday data
+- Called automatically after add/remove operations
+
+#### `void read_holidays_from_eeprom()`
+Loads holidays from EEPROM into RAM.
+- Called during system initialization
+- Validates count and loads holiday data
+
+#### `void holiday_menu_fsm()`
+Holiday management menu state machine.
+- **Main Menu**: Options 1 (Add), 2 (Remove), 3 (View)
+- **Add Holiday**: Sequential input of date, month, year
+- **Remove Holiday**: Input date, month, year to remove
+- **View Holidays**: Browse all configured holidays with navigation
+  - Keys: `1`/`4` (previous), `2`/`6` (next), `3` (first), `5` (last)
 
 ### EEPROM Functions
 
@@ -573,6 +613,25 @@ User data stored per index (0 to MAX_NUM_OF_USERS-1):
 ### Storage Layout
 
 ```
+User Data Block (per user):
+- Password configuration flag (1 byte)
+- Mobile number (MOBILE_NUMBER_LENGTH bytes)
+- Password length (1 byte)
+- Password start marker (1 byte)
+- Password value (PASSWORD_STORE_COUNT bytes)
+- In/out time configuration flag (1 byte)
+- In time (IN_OUT_TIME_LEN_COUNT bytes)
+- Out time (IN_OUT_TIME_LEN_COUNT bytes)
+- Padding (1 byte)
+
+Global Parameters (after user data):
+- Alpha speed (ALPHA_SPEED_LEN_COUNT = 4 bytes)
+- Door open count (DOOR_OPEN_COUND_LEN_COUNT = 4 bytes)
+- Buzzer timeout (BUZZER_TIMEOUT_LEN_COUNT = 4 bytes)
+- Holiday count (HOLIDAY_COUNT_SIZE = 1 byte)
+- Holiday data (MAX_HOLIDAYS * HOLIDAY_DATA_SIZE bytes)
+  - Each holiday: date (1 byte) + month (1 byte) + year (1 byte)
+
 Index 0: Master user (User ID 1)
 Index 1: User 2
 Index 2: User 3
@@ -600,6 +659,16 @@ Index 27: User 28
 
 #### `void write_buzzer_timeout_to_eeprom(uint16_t timeout)`
 - Stores buzzer timeout configuration
+
+#### `void write_holidays_to_eeprom()`
+- Writes all holidays to EEPROM
+- Stores holiday count and holiday data array
+- Called automatically after add/remove operations
+
+#### `void read_holidays_from_eeprom()`
+- Loads holidays from EEPROM into RAM
+- Validates holiday count
+- Called during system initialization
 
 ---
 
@@ -670,16 +739,22 @@ void generate_random_otp()
 - Configure in/out time per user
 - Format: HH:MM (24-hour)
 - Access denied outside time window
+- **Holiday Override**: Access is denied on configured holidays regardless of time slot
 
 #### Buzzer Configuration
 - Set buzzer timeout (stored in EEPROM)
 - Configure alarm behavior
 - Buzzer screen accessible from master menu (option 8)
 
-#### Alpha Speed Configuration
-- Configure alpha input speed
-- Stored in EEPROM
-- Affects character input rate
+#### Holiday Management
+- Configure holidays for access denial
+- Stored in EEPROM (up to 50 holidays)
+- Access denied on configured holidays regardless of time slot
+- Features:
+  - Add holidays (date, month, year)
+  - Remove holidays
+  - View all configured holidays
+  - Holiday screen accessible from master menu (option 6)
 
 #### Display Timeout
 - Configurable LCD auto-off timeout
@@ -790,7 +865,7 @@ PASSWORD:
 3. Password
 4. Date/Time
 5. Mobile Number
-6. Alpha
+6. Holiday
 7. Backup
 8. Buzzer
 9. Fingerprint
@@ -812,12 +887,42 @@ ERROR IN OPENING
 ERROR IN CLOSING!!
 ```
 
+#### Holiday Management Menu
+```
+HOLIDAY MENU
+1:ADD 2:REM 3:VIEW
+
+ADD HOLIDAY
+DATE: [input]
+MONTH: [input]
+YEAR: [input]
+
+REMOVE HOLIDAY
+DATE: [input]
+MONTH: [input]
+YEAR: [input]
+
+HOLIDAY 1/5
+01/12/24
+
+NO HOLIDAYS
+CONFIGURED
+```
+
+**Navigation in View Mode:**
+- `1` or `4`: Previous holiday
+- `2` or `6`: Next holiday
+- `3`: Jump to first holiday
+- `5`: Jump to last holiday
+- `@` (CANCEL): Back to main menu
+
 #### Error Messages
 ```
 Invld Password!!
 Sensor Not Aligned!!
 USER FINGERPRNT NOT MATCHED!
 MASTER FINGERPRNT NOT MATCHED!
+Holiday - No Access Allowed!
 ```
 
 ### User Feedback
@@ -847,7 +952,15 @@ MASTER FINGERPRNT NOT MATCHED!
 - Configurable access windows per user
 - In/out time stored in EEPROM
 - Format: HH:MM (24-hour format)
-- Automatic denial outside configured window (implementation pending)
+- Automatic denial outside configured window
+- **Holiday Override**: Access denied on configured holidays regardless of time slot
+
+### Holiday Management
+- Configure up to 50 holidays for access denial
+- Holidays stored in EEPROM (persistent across reboots)
+- Access automatically denied on configured holidays
+- Holiday check performed before time slot validation
+- Master user can add, remove, and view holidays via menu (option 6)
 
 ### Alert System
 - Real-time SMS alerts via GSM module

@@ -41,7 +41,7 @@ char get_pressed_character();
 #define USER 7
 #define USER_PASSWORD 8
 
-#define ALPHA_SCREEN 9
+#define HOLIDAY_SCREEN 9
 #define BACKUP_SCREEN 10
 
 // extern bool is_password_matched(uint8_t index, char *arr, uint8_t len);
