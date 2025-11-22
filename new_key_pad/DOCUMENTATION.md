@@ -14,6 +14,7 @@
 11. [Configuration](#configuration)
 12. [Error Handling](#error-handling)
 13. [User Interface](#user-interface)
+14. [User Flow Guide](#user-flow-guide)
 
 ---
 
@@ -930,6 +931,1260 @@ Holiday - No Access Allowed!
 - **Visual**: LCD messages
 - **Audio**: Buzzer alerts
 - **Remote**: SMS notifications
+
+---
+
+## User Flow Guide
+
+This section provides detailed step-by-step instructions for all user interactions with the BMS SAFE security system.
+
+### 1. Initial System Startup
+
+**Flow:**
+1. System powers on
+2. LCD displays: `BMS SAFE` with battery percentage
+3. System initializes all components (fingerprint sensor, GSM, RTC, etc.)
+4. After initialization, displays main password entry screen
+
+**Display:**
+```
+   BMS SAFE
+....WELCOME....
+[Battery: XX%]
+```
+
+**Next:** System transitions to MAIN screen for password entry
+
+---
+
+### 2. Password-Based Authentication Flow
+
+#### 2.1 Master Authentication (Step 1)
+
+**Purpose:** Master user must authenticate first before any door access
+
+**Steps:**
+1. **Screen:** MAIN screen displays `PASSWORD:`
+2. **Input:** Enter master password (User ID 1 password)
+   - Format: Password can be 4-15 characters
+   - Example: `12345678`
+3. **Action:** Press `ENTER (#)` key
+4. **Validation:**
+   - ✅ **Success:** System displays `USER PASS/BIO :` screen
+   - ❌ **Failure:** System displays `Invld Password!!` for 1 second, then returns to MAIN screen
+
+**Display (Success):**
+```
+USER PASS/BIO :
+[Waiting for input]
+```
+
+**Display (Failure):**
+```
+Invld Password!!
+[Returns to MAIN]
+```
+
+**Next:** Proceed to User Authentication (Step 2)
+
+---
+
+#### 2.2 User Authentication (Step 2)
+
+**Purpose:** Regular user must authenticate after master authentication
+
+**Steps:**
+1. **Screen:** `USER PASS/BIO :` screen is displayed
+2. **Input Options:**
+   - **Option A - Password:** Enter user ID + password
+     - Format: `[UserID][Password]`
+     - Example: `21234` (User ID 2, Password 1234)
+   - **Option B - Fingerprint:** Place finger on fingerprint sensor
+3. **Action:** 
+   - For password: Press `ENTER (#)` key
+   - For fingerprint: Wait for sensor to read
+4. **Validation:**
+   - ✅ **Success:** 
+     - System checks time slot and holidays
+     - If allowed: Door opens, displays door status
+     - If denied: Displays `Holiday - No Access Allowed!` or `No Access Allowed!`
+   - ❌ **Failure:** 
+     - Displays `Invld Password!!` or `USER FINGERPRNT NOT MATCHED!`
+     - Sends SMS alert to master user
+     - Returns to MAIN screen
+
+**Display (Success - Door Opening):**
+```
+OPENING DOOR [count]
+```
+
+**Display (Success - Door Open):**
+```
+DOOR OPENED  [count]
+```
+
+**Display (Failure):**
+```
+Invld Password!!
+[Returns to MAIN]
+```
+
+**Next:** 
+- If successful: User can access door or navigate menus
+- If failed: Must restart from Step 1
+
+---
+
+### 3. Fingerprint-Based Authentication Flow
+
+#### 3.1 Master Fingerprint (Step 1)
+
+**Purpose:** Master user authenticates using fingerprint
+
+**Steps:**
+1. **Screen:** MAIN screen (or any screen)
+2. **Action:** Place master's finger (User ID 1) on fingerprint sensor
+3. **Validation:**
+   - ✅ **Success:** 
+     - System displays `USER PASS/BIO :` screen
+     - Sets `first_user_verified = 1`
+   - ❌ **Failure:** 
+     - Displays `MASTER FINGERPRNT NOT MATCHED!`
+     - Sends SMS alert to master
+     - Returns to DEFAULT state
+
+**Display (Success):**
+```
+USER PASS/BIO :
+[Waiting for user]
+```
+
+**Display (Failure):**
+```
+MASTER FINGERPRNT
+NOT MATCHED!
+```
+
+**Next:** Proceed to User Fingerprint (Step 2)
+
+---
+
+#### 3.2 User Fingerprint (Step 2)
+
+**Purpose:** Regular user authenticates using fingerprint
+
+**Steps:**
+1. **Screen:** `USER PASS/BIO :` screen
+2. **Action:** Place user's finger on fingerprint sensor
+3. **Validation:**
+   - ✅ **Success:** 
+     - System checks time slot and holidays
+     - If allowed: Door opens
+     - If denied: Displays access denied message
+   - ❌ **Failure:** 
+     - Displays `USER FINGERPRNT NOT MATCHED!`
+     - Increments failure count
+     - If 2nd failure: Sends SMS alert, returns to MAIN screen
+     - If 1st failure: Allows retry on same screen
+
+**Display (Success):**
+```
+OPENING DOOR [count]
+```
+
+**Display (Failure - Retry):**
+```
+USER FINGERPRNT
+NOT MATCHED!
+[Retry allowed]
+```
+
+**Display (Failure - Alert Sent):**
+```
+USER FINGERPRNT
+NOT MATCHED!
+[Returns to MAIN]
+```
+
+**Next:**
+- If successful: Door access granted
+- If failed (1st time): Can retry
+- If failed (2nd time): Must restart from Step 1
+
+---
+
+### 4. Master Menu Navigation
+
+#### 4.1 Accessing Master Menu
+
+**Prerequisites:** Master authentication completed (password or fingerprint)
+
+**Steps:**
+1. After successful master authentication, system displays `USER PASS/BIO :` screen
+2. If master enters their own password again (User ID 1), system opens Master Main Menu
+3. Master Main Menu displays:
+
+**Display:**
+```
+1. Add User
+2. Remove User
+3. Password
+4. Date/Time
+5. Mobile Number
+6. Holiday
+7. Backup
+8. Buzzer
+9. Fingerprint
+```
+
+**Navigation:**
+- Press number key (1-9) to select option
+- Press `CANCEL (@)` to return to previous screen
+
+---
+
+#### 4.2 Adding a New User
+
+**Menu Path:** Master Main Menu → Press `1` (Add User)
+
+**Steps:**
+1. **Screen:** `USER ID:` prompt appears
+2. **Input:** Enter user ID (2-28, cannot be 1)
+   - Example: `2` for User 2
+3. **Action:** Press `ENTER (#)`
+4. **Validation:**
+   - ✅ **Valid:** Proceeds to mobile number input
+   - ❌ **Invalid:** Displays `USER ALREADY EXISTS!!` if user already configured
+5. **Mobile Number Input:**
+   - Screen: `MOBILE NUMBER:`
+   - Enter 10-digit mobile number
+   - Press `ENTER (#)` to confirm
+6. **Password Input:**
+   - Screen: `PASSWORD:`
+   - Enter password (4-15 characters)
+   - Press `ENTER (#)` to confirm
+7. **Confirmation:**
+   - System saves user data to EEPROM
+   - Displays success message
+   - Returns to Master Main Menu
+
+**Display (User ID Input):**
+```
+USER ID:
+[Input area]
+```
+
+**Display (Mobile Number Input):**
+```
+MOBILE NUMBER:
+[Input area]
+```
+
+**Display (Password Input):**
+```
+PASSWORD:
+[Input area]
+```
+
+**Display (Success):**
+```
+USER-[ID] ADDED!!
+[Returns to menu]
+```
+
+**Display (Error):**
+```
+USER ALREADY
+EXISTS!!
+```
+
+**Optional:** After adding user, can add fingerprint (see Section 4.9)
+
+---
+
+#### 4.3 Removing a User
+
+**Menu Path:** Master Main Menu → Press `2` (Remove User)
+
+**Steps:**
+1. **Screen:** `USER ID:` prompt appears
+2. **Input:** Enter user ID to remove (2-28, cannot remove User 1)
+   - Example: `2` for User 2
+3. **Action:** Press `ENTER (#)`
+4. **Validation:**
+   - ✅ **Valid:** System deletes user
+   - ❌ **Invalid:** Displays `USER NOT FOUND!!` if user doesn't exist
+5. **Deletion Process:**
+   - Displays `PLEASE WAIT...!!` and `DELETING USER-[ID]`
+   - Deletes fingerprint from sensor
+   - Clears password from EEPROM
+   - Displays `USER-[ID] DELETED!!`
+   - Returns to Master Main Menu
+
+**Display (User ID Input):**
+```
+USER ID:
+[Input area]
+```
+
+**Display (Deleting):**
+```
+PLEASE WAIT...!!
+DELETING USER-2
+```
+
+**Display (Success):**
+```
+USER-2 DELETED!!
+[Returns to menu]
+```
+
+**Display (Error):**
+```
+USER NOT
+FOUND!!
+```
+
+---
+
+#### 4.4 Changing Master Password
+
+**Menu Path:** Master Main Menu → Press `3` (Password)
+
+**Steps:**
+1. **Screen:** Password change menu appears
+2. **Input:** Enter new password (4-15 characters)
+3. **Action:** Press `ENTER (#)` to confirm
+4. **Confirmation:** System updates password in EEPROM
+5. **Result:** Returns to Master Main Menu
+
+**Note:** This changes the master user's (User ID 1) password
+
+---
+
+#### 4.5 Setting Date/Time
+
+**Menu Path:** Master Main Menu → Press `4` (Date/Time)
+
+**Steps:**
+1. **Screen:** Date/Time input menu appears
+2. **Date Input:**
+   - Screen: `DATE:`
+   - Enter date (1-31)
+   - Press `ENTER (#)`
+3. **Month Input:**
+   - Screen: `MONTH:`
+   - Enter month (1-12)
+   - Press `ENTER (#)`
+4. **Year Input:**
+   - Screen: `YEAR:`
+   - Enter year (2 digits, e.g., 24 for 2024)
+   - Press `ENTER (#)`
+5. **Hour Input:**
+   - Screen: `HOUR:`
+   - Enter hour (0-23, 24-hour format)
+   - Press `ENTER (#)`
+6. **Minute Input:**
+   - Screen: `MINUTE:`
+   - Enter minute (0-59)
+   - Press `ENTER (#)`
+7. **Second Input:**
+   - Screen: `SECOND:`
+   - Enter second (0-59)
+   - Press `ENTER (#)`
+8. **Confirmation:** System updates RTC with new date/time
+9. **Result:** Returns to Master Main Menu
+
+**Display (Date Input):**
+```
+DATE:
+[Input area]
+```
+
+**Navigation:**
+- Use `CANCEL (@)` to cancel and return to menu
+- Each field must be entered sequentially
+
+---
+
+#### 4.6 Updating Mobile Number
+
+**Menu Path:** Master Main Menu → Press `5` (Mobile Number)
+
+**Steps:**
+1. **Screen:** `USER ID:` prompt appears
+2. **Input:** Enter user ID whose mobile number to update
+3. **Action:** Press `ENTER (#)`
+4. **Mobile Number Input:**
+   - Screen: `MOBILE NUMBER:`
+   - Enter new 10-digit mobile number
+   - Press `ENTER (#)` to confirm
+5. **Confirmation:** System updates mobile number in EEPROM
+6. **Result:** Returns to Master Main Menu
+
+---
+
+#### 4.7 Holiday Management
+
+**Menu Path:** Master Main Menu → Press `6` (Holiday)
+
+**Steps:**
+1. **Screen:** Holiday Management Main Menu appears
+
+**Display:**
+```
+HOLIDAY MENU
+1:ADD 2:REM 3:VIEW
+```
+
+**Options:**
+- Press `1`: Add Holiday
+- Press `2`: Remove Holiday
+- Press `3`: View Holidays
+- Press `CANCEL (@)`: Return to Master Main Menu
+
+---
+
+##### 4.7.1 Adding a Holiday
+
+**Menu Path:** Holiday Menu → Press `1` (Add)
+
+**Steps:**
+1. **Screen:** `ADD HOLIDAY` and `DATE:` prompt
+2. **Date Input:**
+   - Enter date (1-31)
+   - Press `ENTER (#)` to proceed
+3. **Month Input:**
+   - Screen: `ADD HOLIDAY` and `MONTH:` prompt
+   - Enter month (1-12)
+   - Press `ENTER (#)` to proceed
+4. **Year Input:**
+   - Screen: `ADD HOLIDAY` and `YEAR:` prompt
+   - Enter year (2 digits, 0-99)
+   - Press `ENTER (#)` to confirm
+5. **Validation:**
+   - ✅ **Success:** Holiday added, returns to Holiday Menu
+   - ❌ **Failure:** Displays error if date invalid or duplicate
+6. **Result:** Returns to Holiday Menu
+
+**Display (Date Input):**
+```
+ADD HOLIDAY
+DATE: [input]
+```
+
+**Display (Success):**
+```
+HOLIDAY ADDED
+[Returns to menu]
+```
+
+**Navigation:**
+- Use `CANCEL (@)` at any step to cancel and return to Holiday Menu
+
+---
+
+##### 4.7.2 Removing a Holiday
+
+**Menu Path:** Holiday Menu → Press `2` (Remove)
+
+**Steps:**
+1. **Screen:** `REMOVE HOLIDAY` and `DATE:` prompt
+2. **Date Input:**
+   - Enter date (1-31)
+   - Press `ENTER (#)` to proceed
+3. **Month Input:**
+   - Screen: `REMOVE HOLIDAY` and `MONTH:` prompt
+   - Enter month (1-12)
+   - Press `ENTER (#)` to proceed
+4. **Year Input:**
+   - Screen: `REMOVE HOLIDAY` and `YEAR:` prompt
+   - Enter year (2 digits)
+   - Press `ENTER (#)` to confirm
+5. **Validation:**
+   - ✅ **Success:** Holiday removed, returns to Holiday Menu
+   - ❌ **Failure:** Displays error if holiday not found
+6. **Result:** Returns to Holiday Menu
+
+**Display (Date Input):**
+```
+REMOVE HOLIDAY
+DATE: [input]
+```
+
+**Display (Success):**
+```
+HOLIDAY REMOVED
+[Returns to menu]
+```
+
+**Display (Error):**
+```
+HOLIDAY NOT
+FOUND!!
+```
+
+---
+
+##### 4.7.3 Viewing Holidays
+
+**Menu Path:** Holiday Menu → Press `3` (View)
+
+**Steps:**
+1. **Screen:** Displays first holiday (if any exist)
+
+**Display (With Holidays):**
+```
+HOLIDAY 1/5
+01/12/24
+```
+
+**Display (No Holidays):**
+```
+NO HOLIDAYS
+CONFIGURED
+```
+
+**Navigation:**
+- Press `1` or `4`: Previous holiday
+- Press `2` or `6`: Next holiday
+- Press `3`: Jump to first holiday
+- Press `5`: Jump to last holiday
+- Press `CANCEL (@)`: Return to Holiday Menu
+
+**Features:**
+- Shows current holiday index (e.g., "1/5" means holiday 1 of 5 total)
+- Displays date in DD/MM/YY format
+- Automatically wraps around at boundaries
+
+---
+
+#### 4.8 Backup Operations
+
+**Menu Path:** Master Main Menu → Press `7` (Backup)
+
+**Steps:**
+1. **Screen:** Backup menu appears
+2. **Options:** (Implementation may vary)
+   - Backup user data
+   - Restore from backup
+   - Export to SD card/USB
+3. **Action:** Follow on-screen prompts
+4. **Result:** Returns to Master Main Menu
+
+**Note:** Backup functionality may copy data to SD card or USB flash drive
+
+---
+
+#### 4.9 Buzzer Configuration
+
+**Menu Path:** Master Main Menu → Press `8` (Buzzer)
+
+**Steps:**
+1. **Screen:** Buzzer configuration menu appears
+2. **Input:** Enter buzzer timeout value (in seconds or milliseconds)
+3. **Action:** Press `ENTER (#)` to confirm
+4. **Confirmation:** System saves buzzer timeout to EEPROM
+5. **Result:** Returns to Master Main Menu
+
+**Purpose:** Configures how long buzzer sounds for alerts
+
+---
+
+#### 4.10 Fingerprint Management
+
+**Menu Path:** Master Main Menu → Press `9` (Fingerprint)
+
+**Steps:**
+1. **Screen:** `USER ID:` prompt appears
+2. **Input:** Enter user ID to add fingerprint for
+3. **Action:** Press `ENTER (#)`
+4. **Validation:**
+   - ✅ **Valid:** Proceeds to fingerprint enrollment
+   - ❌ **Invalid:** Displays `USER NOT CONFIGURED!!` if user doesn't exist
+5. **Fingerprint Enrollment Process:**
+   - Screen: `PLACE FINGER`
+   - Place finger on sensor
+   - Wait for: `IMAGE TAKEN`
+   - Wait for: `IMAGE CONVERTED`
+   - Screen: `REMOVE FINGER!`
+   - Remove finger and wait 2 seconds
+   - Screen: `CONFIRM FINGER!`
+   - Place same finger again
+   - Wait for: `IMAGE TAKEN`
+   - Wait for: `IMAGE CONVERTED`
+   - System creates fingerprint template
+   - Screen: `FINGERPRINT ENROLLED!`
+   - Returns to Master Main Menu
+
+**Display (Place Finger):**
+```
+PLACE FINGER
+[Waiting...]
+```
+
+**Display (Image Taken):**
+```
+IMAGE TAKEN
+```
+
+**Display (Remove Finger):**
+```
+REMOVE FINGER!
+```
+
+**Display (Confirm Finger):**
+```
+CONFIRM FINGER!
+```
+
+**Display (Success):**
+```
+FINGERPRINT
+ENROLLED!
+```
+
+**Display (Error):**
+```
+USER NOT
+CONFIGURED!!
+```
+
+**Note:** User must have password configured before adding fingerprint
+
+---
+
+### 5. User Menu Navigation
+
+#### 5.1 Accessing User Menu
+
+**Prerequisites:** Successful dual authentication (master + user)
+
+**Steps:**
+1. After successful user authentication, system displays User Main Screen
+2. User Main Screen shows door status and options
+
+**Display:**
+```
+DOOR OPENED  [count]
+[or]
+OPENING DOOR [count]
+```
+
+**Options:**
+- Press `LOCK (*)`: Close door
+- Press `1`: Change password
+- Press `2`: (Reserved/Unused)
+
+---
+
+#### 5.2 User Changing Password
+
+**Menu Path:** User Main Screen → Press `1` (Password)
+
+**Steps:**
+1. **Screen:** `OLD PASSWORD:` prompt appears
+2. **Input:** Enter current password
+3. **Action:** Press `ENTER (#)`
+4. **Validation:**
+   - ✅ **Valid:** Proceeds to new password input
+   - ❌ **Invalid:** Displays `Invld Password!!` and returns to User Main Screen
+5. **New Password Input:**
+   - Screen: `NEW PASSWORD:`
+   - Enter new password (4-15 characters)
+   - Press `ENTER (#)` to confirm
+6. **Confirmation:** System updates password in EEPROM
+7. **Result:** Returns to User Main Screen
+
+**Display (Old Password):**
+```
+OLD PASSWORD:
+[Input area]
+```
+
+**Display (New Password):**
+```
+NEW PASSWORD:
+[Input area]
+```
+
+**Display (Success):**
+```
+PASSWORD CHANGED
+[Returns to menu]
+```
+
+---
+
+#### 5.3 User Closing Door
+
+**Menu Path:** User Main Screen → Press `LOCK (*)`
+
+**Steps:**
+1. **Action:** Press `LOCK (*)` key
+2. **Screen:** Displays `CLOSING DOOR ...`
+3. **Process:** System initiates door closing sequence
+4. **Status:** Door closes, sensors confirm closed position
+5. **Display:** Shows door closed status
+
+**Display:**
+```
+CLOSING DOOR ...
+```
+
+**Display (Closed):**
+```
+DOOR CLOSED
+```
+
+---
+
+### 6. SMS Command Flows
+
+#### 6.1 Two-Step UNLOCK Command
+
+**Purpose:** Unlock door remotely via SMS with dual authentication
+
+**Prerequisites:** 
+- Sender's mobile number must be registered in system
+- Both master and user passwords must be known
+
+---
+
+##### Step 1: Master Verification
+
+**Command Format:**
+```
+&UNLOCK,01,<master_password>#
+```
+
+**Example:**
+```
+&UNLOCK,01,9925366111#
+```
+
+**Parameters:**
+- `01`: User ID 1 (Master)
+- `<master_password>`: Master user's password (4-15 characters)
+
+**Response:**
+- ✅ **Success:** SMS reply: `"Door Unlock Command Accepted!"`
+- ❌ **Failure:** SMS reply: `"Password is not valid"` or `"Parameters missing"`
+
+**System Action:**
+- Sets `sms_master_verified = true`
+- Starts 60-second timeout timer
+- Waits for Step 2 (user verification)
+
+**Important:** Must complete Step 2 within 60 seconds, or master verification expires
+
+---
+
+##### Step 2: User Verification & Unlock
+
+**Command Format:**
+```
+&UNLOCK,<user_id>,<user_password>#
+```
+
+**Example:**
+```
+&UNLOCK,02,1234#
+```
+
+**Parameters:**
+- `<user_id>`: User ID (2-28, cannot be 1)
+- `<user_password>`: User's password (4-15 characters)
+
+**Response:**
+- ✅ **Success:** SMS reply: `"Door Unlock Command Accepted!"`
+- ❌ **Failure:** 
+  - `"No Access Allowed"` - Master not verified, wrong password, or time/holiday restriction
+  - `"Password is not valid"` - User password incorrect
+
+**System Action:**
+- Verifies master was authenticated in Step 1
+- Validates user password
+- Checks time slot restrictions
+- Checks if today is a holiday
+- If all checks pass: Unlocks door, resets master verification flag
+- If any check fails: Returns error, resets master verification flag
+
+**Complete Flow Example:**
+```
+Step 1: Send &UNLOCK,01,9925366111#
+        → Receive: "Door Unlock Command Accepted!"
+        
+Step 2: Send &UNLOCK,02,1234# (within 60 seconds)
+        → Receive: "Door Unlock Command Accepted!"
+        → Door unlocks
+```
+
+**Error Scenarios:**
+- **Master password wrong:** Step 1 fails, must retry Step 1
+- **User tries to unlock without Step 1:** Step 2 fails with "No Access Allowed"
+- **Timeout:** If Step 2 not sent within 60 seconds, master verification expires
+- **User password wrong:** Step 2 fails, master verification reset, must restart from Step 1
+- **Time slot restriction:** Step 2 fails with "No Access Allowed"
+- **Holiday restriction:** Step 2 fails with "No Access Allowed"
+
+---
+
+#### 6.2 LOCK Command
+
+**Command Format:**
+```
+&LOCK,<user_id>,<password>#
+```
+
+**Example:**
+```
+&LOCK,02,1234#
+```
+
+**Parameters:**
+- `<user_id>`: User ID (1-28)
+- `<password>`: User's password (4-15 characters)
+
+**Response:**
+- ✅ **Success:** SMS reply: `"Door Lock Command Accepted!"`
+- ❌ **Failure:** 
+  - `"Password is not valid"` - Wrong password
+  - `"No Access Allowed"` - User not registered or invalid parameters
+
+**System Action:**
+- Verifies mobile number is registered
+- Validates user ID and password
+- Initiates door closing sequence
+- Sends confirmation SMS
+
+---
+
+#### 6.3 ADD_USER Command
+
+**Command Format:**
+```
+&ADD_USER,<user_id>,<mobile_number>,<password>#
+```
+
+**Example:**
+```
+&ADD_USER,02,9876543210,1234#
+```
+
+**Parameters:**
+- `<user_id>`: User ID (2-28, cannot be 1)
+- `<mobile_number>`: 10-digit mobile number
+- `<password>`: Password (4-15 characters)
+
+**Response:**
+- ✅ **Success:** SMS reply: `"Command Executed"`
+- ❌ **Failure:** 
+  - `"User already exists"` - User ID already configured
+  - `"Parameters missing"` - Missing required parameters
+  - `"Invalid parameters"` - Invalid user ID or password length
+
+**System Action:**
+- Validates parameters
+- Checks if user already exists
+- Stores user data in EEPROM
+- Sends confirmation SMS
+
+---
+
+#### 6.4 REMOVE_USER Command
+
+**Command Format:**
+```
+&REMOVE_USER,<user_id>#
+```
+
+**Example:**
+```
+&REMOVE_USER,02#
+```
+
+**Parameters:**
+- `<user_id>`: User ID to remove (2-28, cannot remove User 1)
+
+**Response:**
+- ✅ **Success:** SMS reply: `"Command Executed"`
+- ❌ **Failure:** 
+  - `"User not found"` - User ID doesn't exist
+  - `"Parameters missing"` - Missing user ID
+
+**System Action:**
+- Validates user ID
+- Deletes fingerprint from sensor
+- Removes password from EEPROM
+- Sends confirmation SMS
+
+---
+
+#### 6.5 CHANGE_PASSWORD Command
+
+**Command Format:**
+```
+&CHANGE_PASSWORD,<user_id>,<old_password>,<new_password>#
+```
+
+**Example:**
+```
+&CHANGE_PASSWORD,02,1234,5678#
+```
+
+**Parameters:**
+- `<user_id>`: User ID (1-28)
+- `<old_password>`: Current password
+- `<new_password>`: New password (4-15 characters)
+
+**Response:**
+- ✅ **Success:** SMS reply: `"Command Executed"`
+- ❌ **Failure:** 
+  - `"Password is not valid"` - Old password incorrect
+  - `"Parameters missing"` - Missing required parameters
+
+**System Action:**
+- Validates old password
+- Updates password in EEPROM
+- Sends confirmation SMS
+
+---
+
+#### 6.6 UPDATE_TIME_SLOT Command
+
+**Command Format:**
+```
+&UPDATE_TIME_SLOT,<user_id>,<in_hour>,<in_minute>,<out_hour>,<out_minute>#
+```
+
+**Example:**
+```
+&UPDATE_TIME_SLOT,02,09,00,17,30#
+```
+
+**Parameters:**
+- `<user_id>`: User ID (1-28)
+- `<in_hour>`: Access start hour (0-23)
+- `<in_minute>`: Access start minute (0-59)
+- `<out_hour>`: Access end hour (0-23)
+- `<out_minute>`: Access end minute (0-59)
+
+**Response:**
+- ✅ **Success:** SMS reply: `"Command Executed"`
+- ❌ **Failure:** 
+  - `"Parameters missing"` - Missing required parameters
+  - `"Invalid parameters"` - Invalid time values
+
+**System Action:**
+- Validates time values
+- Stores time slot in EEPROM
+- Sends confirmation SMS
+
+**Note:** User can only access door during configured time window (unless no time slot configured)
+
+---
+
+### 7. Alarm Handling Flow
+
+#### 7.1 Temperature Alarm
+
+**Trigger Condition:** Temperature exceeds 60°C threshold
+
+**Flow:**
+1. **Detection:** Temperature sensor detects high temperature
+2. **Alarm Activation:**
+   - Sirens activate
+   - LCD display turns off
+   - OTP generated
+   - SMS alerts sent to all configured users
+3. **OTP Input Screen:**
+   - System displays OTP input prompt
+   - User must enter correct OTP to deactivate
+4. **Deactivation:**
+   - Enter correct OTP (6 digits)
+   - System deactivates alarms
+   - Sirens turn off
+   - LCD display returns to normal
+   - System returns to MAIN screen
+
+**Display (OTP Input):**
+```
+[OTP input area]
+```
+
+**Master OTP:** `455556` (hardcoded for emergency)
+
+---
+
+#### 7.2 Vibration Alarm
+
+**Trigger Condition:** Vibration sensor detects movement
+
+**Flow:**
+1. **Detection:** Vibration sensor triggers
+2. **Alarm Activation:**
+   - Sirens activate
+   - LCD display turns off
+   - OTP generated
+   - SMS alerts sent to all configured users
+3. **OTP Input:** Same as Temperature Alarm
+4. **Deactivation:** Same as Temperature Alarm
+
+---
+
+#### 7.3 Gun Point Activation
+
+**Trigger Condition:** Gun point button pressed for 3 seconds
+
+**Flow:**
+1. **Detection:** Gun point button held for timeout period
+2. **Alarm Activation:**
+   - Sirens activate
+   - LCD display turns off
+   - OTP generated
+   - SMS alerts sent to all users (except triggering user)
+   - Emergency calls made to all users
+3. **OTP Input:** Same as Temperature Alarm
+4. **Deactivation:** Same as Temperature Alarm
+
+**Note:** This is an emergency activation system
+
+---
+
+### 8. Door Operation Flow
+
+#### 8.1 Opening Door
+
+**Prerequisites:** Successful dual authentication
+
+**Flow:**
+1. **Authentication:** Complete master + user authentication
+2. **IR Alignment Check:**
+   - ✅ **Aligned:** Proceeds to door opening
+   - ❌ **Not Aligned:** Displays `Sensor Not Aligned!!`, stops operation
+3. **Time/Holiday Check:**
+   - ✅ **Allowed:** Proceeds to door opening
+   - ❌ **Denied:** Displays `Holiday - No Access Allowed!` or `No Access Allowed!`
+4. **Door Opening:**
+   - Motor starts (CW direction)
+   - Display: `OPENING DOOR [count]`
+   - System monitors open sensor
+5. **Completion:**
+   - Open sensor triggered
+   - Motor stops
+   - Display: `DOOR OPENED [count]`
+   - Door open count incremented
+   - SMS notification sent
+
+**Display (Opening):**
+```
+OPENING DOOR 15
+```
+
+**Display (Opened):**
+```
+DOOR OPENED 15
+```
+
+**Error Handling:**
+- **Timeout:** If door doesn't open within timeout, displays `ERROR IN OPENING`
+- **Sensor Error:** System attempts recovery
+
+---
+
+#### 8.2 Closing Door
+
+**Methods:**
+1. **Keypad:** Press `LOCK (*)` key from User Main Screen
+2. **SMS:** Send `&LOCK,<user_id>,<password>#` command
+
+**Flow:**
+1. **Command:** User initiates close command
+2. **Door Closing:**
+   - Motor starts (CCW direction)
+   - Display: `CLOSING DOOR ...`
+   - System monitors close sensor
+3. **Completion:**
+   - Close sensor triggered
+   - Motor stops
+   - Display: `DOOR CLOSED`
+   - SMS notification sent
+
+**Display (Closing):**
+```
+CLOSING DOOR ...
+```
+
+**Display (Closed):**
+```
+DOOR CLOSED
+```
+
+**Error Handling:**
+- **Timeout:** If door doesn't close within timeout, displays `ERROR IN CLOSING!!`
+- **Retry:** System may attempt automatic retry
+
+---
+
+### 9. Error Recovery Flows
+
+#### 9.1 Authentication Failure Recovery
+
+**Scenario:** User enters wrong password
+
+**Flow:**
+1. **First Failure:**
+   - Display: `Invld Password!!`
+   - Wait 1 second
+   - Return to MAIN screen
+   - No SMS alert sent
+2. **Second Failure (if applicable):**
+   - Display: `Invld Password!!`
+   - SMS alert sent to master user
+   - Return to MAIN screen
+   - User must restart authentication
+
+**Recovery:** User must restart from Step 1 (Master Authentication)
+
+---
+
+#### 9.2 Door Operation Error Recovery
+
+**Scenario:** Door fails to open/close
+
+**Flow:**
+1. **Error Detection:**
+   - Timeout occurs
+   - Display: `ERROR IN OPENING` or `ERROR IN CLOSING!!`
+2. **Recovery Attempt:**
+   - System may attempt automatic recovery
+   - Motor stops
+   - System returns to safe state
+3. **User Action:**
+   - Check sensor alignment
+   - Check door mechanism
+   - Retry operation
+
+---
+
+#### 9.3 GSM Communication Error Recovery
+
+**Scenario:** GSM module not responding
+
+**Flow:**
+1. **Error Detection:**
+   - GSM commands fail
+   - Messages queued for later
+2. **Recovery:**
+   - System retries connection
+   - Messages remain in queue
+   - When GSM available, messages sent automatically
+
+**Note:** Message queue can hold up to 10 messages
+
+---
+
+### 10. Quick Reference Guide
+
+#### 10.1 Keypad Keys
+
+| Key | Symbol | Function |
+|-----|--------|----------|
+| Enter | `#` | Submit/Confirm input |
+| Cancel | `@` | Cancel/Go back |
+| Lock | `*` | Lock/Close door |
+| Power | `!` | Power control |
+| Mute | `^` | Mute alerts |
+| Alpha/Num | `&` | Switch input mode |
+| 0-9 | `0-9` | Numeric input |
+
+---
+
+#### 10.2 Common Display Messages
+
+| Message | Meaning | Action |
+|---------|---------|--------|
+| `PASSWORD:` | Enter password | Enter master password |
+| `USER PASS/BIO :` | Enter user credentials | Enter user password or scan fingerprint |
+| `Invld Password!!` | Wrong password | Re-enter password |
+| `Sensor Not Aligned!!` | IR sensor misaligned | Check sensor alignment |
+| `Holiday - No Access Allowed!` | Today is holiday | Access denied |
+| `No Access Allowed!` | Outside time slot | Access denied |
+| `OPENING DOOR [count]` | Door opening | Wait for completion |
+| `DOOR OPENED [count]` | Door fully open | Access granted |
+| `CLOSING DOOR ...` | Door closing | Wait for completion |
+| `DOOR CLOSED` | Door fully closed | Operation complete |
+
+---
+
+#### 10.3 SMS Command Quick Reference
+
+| Command | Format | Purpose |
+|---------|--------|---------|
+| UNLOCK (Step 1) | `&UNLOCK,01,<master_pw>#` | Verify master |
+| UNLOCK (Step 2) | `&UNLOCK,<user_id>,<user_pw>#` | Verify user & unlock |
+| LOCK | `&LOCK,<user_id>,<password>#` | Lock door |
+| ADD_USER | `&ADD_USER,<id>,<mobile>,<pw>#` | Add new user |
+| REMOVE_USER | `&REMOVE_USER,<id>#` | Remove user |
+| CHANGE_PASSWORD | `&CHANGE_PASSWORD,<id>,<old>,<new>#` | Change password |
+| UPDATE_TIME_SLOT | `&UPDATE_TIME_SLOT,<id>,<in_h>,<in_m>,<out_h>,<out_m>#` | Set time slot |
+
+---
+
+#### 10.4 Master Menu Quick Reference
+
+| Option | Key | Function |
+|--------|-----|----------|
+| Add User | `1` | Add new user |
+| Remove User | `2` | Remove existing user |
+| Password | `3` | Change master password |
+| Date/Time | `4` | Set system date/time |
+| Mobile Number | `5` | Update user mobile number |
+| Holiday | `6` | Manage holidays |
+| Backup | `7` | Backup operations |
+| Buzzer | `8` | Configure buzzer |
+| Fingerprint | `9` | Add fingerprint |
+
+---
+
+### 11. Best Practices
+
+#### 11.1 Authentication
+- Always complete both authentication steps (master + user)
+- Keep passwords secure and don't share
+- Use fingerprint for faster access when available
+- Remember: Master must authenticate first
+
+#### 11.2 Door Operations
+- Ensure IR sensor is aligned before operations
+- Wait for door to fully open/close before proceeding
+- Check door status on display
+- Use `LOCK (*)` key to close door when done
+
+#### 11.3 SMS Commands
+- Complete UNLOCK in two steps within 60 seconds
+- Verify mobile number is registered before sending commands
+- Use correct command format with `&` start and `#` end
+- Check SMS replies for confirmation
+
+#### 11.4 User Management
+- Master should regularly review user list
+- Remove users who no longer need access
+- Update mobile numbers when changed
+- Configure time slots for security
+
+#### 11.5 Holiday Management
+- Add holidays in advance
+- Review holiday list regularly
+- Remove holidays that are no longer needed
+- Remember: Holidays override time slots
+
+#### 11.6 Alarm Handling
+- Keep OTP safe and accessible
+- Respond to alarms promptly
+- Enter OTP correctly to deactivate
+- Contact administrator if OTP doesn't work
 
 ---
 
