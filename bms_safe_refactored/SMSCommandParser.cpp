@@ -648,7 +648,7 @@ void SMSCommandParser::task() {
   }
   
   // Read serial data
-  uint16_t len = readSerialToBuffer(*gsmSerial, serial_buffer, SystemConfig::SERIAL_BUFFER_SIZE);
+  uint16_t len = readSerialToBuffer(*gsmSerial, serial_buffer, SystemConfig::SMS_SERIAL_BUFFER_SIZE);
   if (len == 0) {
     return;
   }

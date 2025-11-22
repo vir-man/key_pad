@@ -1,10 +1,7 @@
 #include "FingerprintManager.h"
-#include <LiquidCrystal.h>
-
-extern LiquidCrystal lcd;
 
 FingerprintManager::FingerprintManager(HardwareSerial* serialPort) 
-  : serial(serialPort), state(FingerprintManager::FingerprintState::IDLE) {
+  : serial(serialPort), state(FingerprintManager::FingerprintState::IDLE), lcd(nullptr) {
   finger = nullptr;
 }
 
@@ -26,9 +23,15 @@ bool FingerprintManager::initialize() {
   return false;
 }
 
+void FingerprintManager::setLCD(LiquidCrystal* lcdInstance) {
+  lcd = lcdInstance;
+}
+
 void FingerprintManager::clearScreenAndEnrollFinger() {
-  lcd.clear();
-  lcd.setCursor(0, 0);
+  if (lcd != nullptr) {
+    lcd->clear();
+    lcd->setCursor(0, 0);
+  }
 }
 
 int8_t FingerprintManager::getFingerprintID() {
@@ -66,7 +69,9 @@ ErrorCode FingerprintManager::enrollFingerprint(uint8_t id) {
   }
   
   clearScreenAndEnrollFinger();
-  lcd.print("PLACE FINGER");
+  if (lcd != nullptr) {
+    lcd->print(F("PLACE FINGER"));
+  }
   
   // Wait for valid finger
   int p = -1;
@@ -76,27 +81,37 @@ ErrorCode FingerprintManager::enrollFingerprint(uint8_t id) {
       continue;
     } else if (p != FINGERPRINT_OK) {
       clearScreenAndEnrollFinger();
-      lcd.print("UNKNOWN ERROR!");
+      if (lcd != nullptr) {
+        lcd->print(F("UNKNOWN ERROR!"));
+      }
       return ErrorCode::AUTH_FINGERPRINT_ERROR;
     }
   }
   
   clearScreenAndEnrollFinger();
-  lcd.print("IMAGE TAKEN");
+  if (lcd != nullptr) {
+    lcd->print(F("IMAGE TAKEN"));
+  }
   
   p = finger->image2Tz(1);
   if (p != FINGERPRINT_OK) {
     clearScreenAndEnrollFinger();
-    lcd.print("UNKNOWN ERROR!");
+    if (lcd != nullptr) {
+      lcd->print(F("UNKNOWN ERROR!"));
+    }
     return ErrorCode::AUTH_FINGERPRINT_ERROR;
   }
   
   clearScreenAndEnrollFinger();
-  lcd.print("IMAGE CONVERTED");
+  if (lcd != nullptr) {
+    lcd->print(F("IMAGE CONVERTED"));
+  }
   delay(500);
   
   clearScreenAndEnrollFinger();
-  lcd.print("REMOVE FINGER!");
+  if (lcd != nullptr) {
+    lcd->print(F("REMOVE FINGER!"));
+  }
   delay(2000);
   
   // Wait for finger removal
@@ -106,7 +121,9 @@ ErrorCode FingerprintManager::enrollFingerprint(uint8_t id) {
   }
   
   clearScreenAndEnrollFinger();
-  lcd.print("CONFIRM FINGER!");
+  if (lcd != nullptr) {
+    lcd->print(F("CONFIRM FINGER!"));
+  }
   
   // Wait for same finger again
   p = -1;
@@ -116,32 +133,42 @@ ErrorCode FingerprintManager::enrollFingerprint(uint8_t id) {
       continue;
     } else if (p != FINGERPRINT_OK) {
       clearScreenAndEnrollFinger();
-      lcd.print("UNKNOWN ERROR!");
+      if (lcd != nullptr) {
+        lcd->print(F("UNKNOWN ERROR!"));
+      }
       return ErrorCode::AUTH_FINGERPRINT_ERROR;
     }
   }
   
   clearScreenAndEnrollFinger();
-  lcd.print("IMAGE TAKEN");
+  if (lcd != nullptr) {
+    lcd->print(F("IMAGE TAKEN"));
+  }
   
   p = finger->image2Tz(2);
   if (p != FINGERPRINT_OK) {
     clearScreenAndEnrollFinger();
-    lcd.print("UNKNOWN ERROR!");
+    if (lcd != nullptr) {
+      lcd->print(F("UNKNOWN ERROR!"));
+    }
     return ErrorCode::AUTH_FINGERPRINT_ERROR;
   }
   
   clearScreenAndEnrollFinger();
-  lcd.print("IMAGE CONVERTED");
+  if (lcd != nullptr) {
+    lcd->print(F("IMAGE CONVERTED"));
+  }
   delay(500);
   
   // Create model
   p = finger->createModel();
   if (p != FINGERPRINT_OK) {
     clearScreenAndEnrollFinger();
-    lcd.print("FINGERS NOT");
-    lcd.setCursor(0, 1);
-    lcd.print("MATCHED!");
+    if (lcd != nullptr) {
+      lcd->print(F("FINGERS NOT"));
+      lcd->setCursor(0, 1);
+      lcd->print(F("MATCHED!"));
+    }
     return ErrorCode::AUTH_FINGERPRINT_ERROR;
   }
   
@@ -149,14 +176,18 @@ ErrorCode FingerprintManager::enrollFingerprint(uint8_t id) {
   p = finger->storeModel(id);
   if (p != FINGERPRINT_OK) {
     clearScreenAndEnrollFinger();
-    lcd.print("STORAGE FAILED!");
+    if (lcd != nullptr) {
+      lcd->print(F("STORAGE FAILED!"));
+    }
     return ErrorCode::AUTH_FINGERPRINT_ERROR;
   }
   
   clearScreenAndEnrollFinger();
-  lcd.print("FINGERPRINT");
-  lcd.setCursor(0, 1);
-  lcd.print("ENROLLED!");
+  if (lcd != nullptr) {
+    lcd->print(F("FINGERPRINT"));
+    lcd->setCursor(0, 1);
+    lcd->print(F("ENROLLED!"));
+  }
   
   return ErrorCode::SUCCESS;
 }

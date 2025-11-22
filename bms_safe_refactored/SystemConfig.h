@@ -46,11 +46,30 @@ public:
   static constexpr uint8_t IR_RX_PIN = A0;
   static constexpr uint8_t BUZZER_PIN = 45;
   static constexpr uint8_t ONE_WIRE_BUS = 42;
-  static constexpr uint8_t SIREN_PIN_0 = 0;  // Update with actual pins
-  static constexpr uint8_t SIREN_PIN_1 = 1;  // Update with actual pins
-  static constexpr uint8_t LCD_GND_PIN = 0;  // Update with actual pins
-  static constexpr uint8_t LCD_VCC_PIN = 0;  // Update with actual pins
-  static constexpr uint8_t BATTERY_ANALOG_PIN = A1;  // Update with actual pin
+  static constexpr uint8_t SIREN_PIN_0 = 27;
+  static constexpr uint8_t SIREN_PIN_1 = 28;
+  static constexpr uint8_t LCD_GND_PIN = A11;
+  static constexpr uint8_t LCD_VCC_PIN = A10;
+  static constexpr uint8_t LCD_RS_PIN = A12;
+  static constexpr uint8_t LCD_EN_PIN = 22;
+  static constexpr uint8_t LCD_D4_PIN = 23;
+  static constexpr uint8_t LCD_D5_PIN = 24;
+  static constexpr uint8_t LCD_D6_PIN = 25;
+  static constexpr uint8_t LCD_D7_PIN = 26;
+  static constexpr uint8_t BATTERY_ANALOG_PIN = A14;
+  static constexpr uint8_t ON_SWITCH_PIN = 40;
+  
+  // Keypad row pins
+  static constexpr uint8_t KEYPAD_ROW_0 = 36;
+  static constexpr uint8_t KEYPAD_ROW_1 = 34;
+  static constexpr uint8_t KEYPAD_ROW_2 = 32;
+  static constexpr uint8_t KEYPAD_ROW_3 = 30;
+  
+  // Keypad column pins
+  static constexpr uint8_t KEYPAD_COL_0 = 37;
+  static constexpr uint8_t KEYPAD_COL_1 = 35;
+  static constexpr uint8_t KEYPAD_COL_2 = 33;
+  static constexpr uint8_t KEYPAD_COL_3 = 31;
   
   // Serial Ports
   static constexpr uint8_t FINGERPRINT_SERIAL = 3;  // Serial3
@@ -61,18 +80,20 @@ public:
   static constexpr uint16_t TEMPERATURE_THRESHOLD = 60;  // Celsius
   static constexpr uint32_t DOOR_OPEN_TIMEOUT = 10000;
   static constexpr uint32_t DOOR_OPEN_ERROR_TIMEOUT = 5000;
+  static constexpr uint32_t DOOR_CLOSE_TIMEOUT = 5000;
   static constexpr uint32_t GUN_POINT_PRESS_TIMEOUT = 3000;
   static constexpr uint32_t DISPLAY_ON_TIMEOUT = 30000;
   static constexpr uint32_t SMS_MASTER_VERIFY_TIMEOUT = 60000;
   static constexpr uint32_t TEMPERATURE_READ_INTERVAL = 10000;
   static constexpr uint32_t RTC_UPDATE_INTERVAL = 60000;  // 1 minute
+  static constexpr uint32_t KEY_DEBOUNCE_DELAY = 5;
   
   // Message Queue
   static constexpr uint8_t MAX_QUEUE_SIZE = 10;
   static constexpr uint8_t MAX_CMD_LEN = 15;
   static constexpr uint8_t MAX_PARA_LEN = 12;
   static constexpr uint8_t MAX_PARAMETER = 5;
-  static constexpr uint8_t SERIAL_BUFFER_SIZE = 100;
+  static constexpr uint8_t SMS_SERIAL_BUFFER_SIZE = 100;
   static constexpr uint8_t CHAR_ARRAY_SIZE = 60;
   
   // SMS Command Parsing

@@ -1,5 +1,14 @@
 #include "MainSystem.h"
+#include "UIStateMachine.h"
 #include <HardwareSerial.h>
+#include <LiquidCrystal.h>
+#include <Adafruit_Keypad.h>
+
+// LCD instance (static to persist for program lifetime)
+static LiquidCrystal* lcdInstance = nullptr;
+
+// Keypad instance (static to persist for program lifetime)
+static Adafruit_Keypad* keypadInstance = nullptr;
 
 MainSystem::MainSystem() 
   : eepromStorage(nullptr), userManager(nullptr), holidayManager(nullptr),
@@ -50,10 +59,22 @@ bool MainSystem::initialize() {
     return false;
   }
   
+  // Initialize LCD (must be before FingerprintManager to set LCD pointer)
+  if (lcdInstance == nullptr) {
+    lcdInstance = new LiquidCrystal(SystemConfig::LCD_RS_PIN, SystemConfig::LCD_EN_PIN,
+                                    SystemConfig::LCD_D4_PIN, SystemConfig::LCD_D5_PIN,
+                                    SystemConfig::LCD_D6_PIN, SystemConfig::LCD_D7_PIN);
+  }
+  
   // Initialize Fingerprint Manager
   fingerprintManager = new FingerprintManager(&Serial3);
   if (!fingerprintManager->initialize()) {
     // Non-critical - continue
+  }
+  
+  // Set LCD pointer for FingerprintManager (for enrollment display)
+  if (lcdInstance != nullptr && fingerprintManager != nullptr) {
+    fingerprintManager->setLCD(lcdInstance);
   }
   
   // Initialize Temperature Monitor
@@ -94,11 +115,34 @@ bool MainSystem::initialize() {
     // Non-critical - continue
   }
   
-  // Initialize UI State Machine (to be created)
-  // uiStateMachine = new UIStateMachine(...);
-  // if (!uiStateMachine->initialize()) {
-  //   return false;
-  // }
+  // Initialize Keypad (only once)
+  if (keypadInstance == nullptr) {
+    static char keys[4][4] = {
+      {'1', '2', '3', 'x'},
+      {'4', '5', '6', '^'},
+      {'7', '8', '9', '&'},
+      {'@', '0', '#', '*'}
+    };
+    static byte rowPins[4] = {
+      SystemConfig::KEYPAD_ROW_0,
+      SystemConfig::KEYPAD_ROW_1,
+      SystemConfig::KEYPAD_ROW_2,
+      SystemConfig::KEYPAD_ROW_3
+    };
+    static byte colPins[4] = {
+      SystemConfig::KEYPAD_COL_0,
+      SystemConfig::KEYPAD_COL_1,
+      SystemConfig::KEYPAD_COL_2,
+      SystemConfig::KEYPAD_COL_3
+    };
+    keypadInstance = new Adafruit_Keypad(makeKeymap(keys), rowPins, colPins, 4, 4);
+  }
+  
+  // Initialize UI State Machine
+  uiStateMachine = new UIStateMachine(lcdInstance, keypadInstance, this);
+  if (!uiStateMachine->initialize()) {
+    return false;
+  }
   
   initialized = true;
   return true;
@@ -151,10 +195,10 @@ void MainSystem::task() {
     authManager->checkSMSMasterTimeout();
   }
   
-  // UI State Machine task (to be implemented)
-  // if (uiStateMachine != nullptr) {
-  //   uiStateMachine->task();
-  // }
+  // UI State Machine task
+  if (uiStateMachine != nullptr) {
+    uiStateMachine->task();
+  }
 }
 
 EEPROMStorage* MainSystem::getEEPROMStorage() {

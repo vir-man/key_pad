@@ -3,6 +3,7 @@
 
 #include <Adafruit_Fingerprint.h>
 #include <HardwareSerial.h>
+#include <LiquidCrystal.h>
 #include "SystemConfig.h"
 #include "ErrorCodes.h"
 
@@ -14,6 +15,7 @@ class FingerprintManager {
 private:
   Adafruit_Fingerprint* finger;
   HardwareSerial* serial;
+  LiquidCrystal* lcd;
   
   // Fingerprint FSM states
   enum class FingerprintState {
@@ -32,6 +34,9 @@ private:
 public:
   FingerprintManager(HardwareSerial* serialPort);
   bool initialize();
+  
+  // Set LCD pointer (for display during enrollment)
+  void setLCD(LiquidCrystal* lcdInstance);
   
   // Fingerprint operations
   int8_t getFingerprintID();

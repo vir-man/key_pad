@@ -25,7 +25,7 @@ private:
   GSMHandler* gsmHandler;
   
   // Parsing buffers
-  char serial_buffer[SystemConfig::SERIAL_BUFFER_SIZE];
+  char serial_buffer[SystemConfig::SMS_SERIAL_BUFFER_SIZE];
   char cmd[SystemConfig::MAX_CMD_LEN];
   char para[SystemConfig::MAX_PARAMETER][SystemConfig::MAX_PARA_LEN];
   uint8_t para_len[SystemConfig::MAX_PARAMETER];
