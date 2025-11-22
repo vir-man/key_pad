@@ -19,18 +19,22 @@
 
 ## System Overview
 
-This is an Arduino-based security system for a keypad-controlled door lock with dual authentication (master + user), fingerprint recognition, GSM communication, temperature monitoring, and door control capabilities.
+This is an Arduino-based security system called **"BMS SAFE"** for a keypad-controlled door lock with dual authentication (master + user), fingerprint recognition, GSM communication, temperature monitoring, vibration detection, and door control capabilities.
 
 ### Key Features
 - **Dual Authentication**: Master user must authenticate first, then a regular user
-- **Fingerprint Recognition**: Adafruit fingerprint sensor integration
+- **Fingerprint Recognition**: Adafruit fingerprint sensor integration (up to 28 users)
 - **Password-based Access**: User ID + password authentication
 - **GSM Communication**: SMS alerts and notifications via SIM7600 module
 - **Door Control**: DC motor-based door opening/closing with sensor feedback
-- **Temperature Monitoring**: Dallas OneWire temperature sensor
+- **Temperature Monitoring**: Dallas OneWire temperature sensor with alarm threshold
+- **Vibration Detection**: Vibration sensor with alarm capability
+- **Gun Point Activation**: Emergency activation system with alerts
 - **Time-based Access Control**: Configurable in/out time slots per user
+- **Battery Monitoring**: Battery percentage display and monitoring
 - **EEPROM Storage**: Persistent storage for user data, passwords, and settings
 - **LCD Display**: 16x2 character LCD for user interface
+- **OTP System**: One-time password for alarm deactivation
 
 ---
 
@@ -42,7 +46,9 @@ This is an Arduino-based security system for a keypad-controlled door lock with 
 ### Peripherals
 1. **LCD Display** (16x2)
    - Power control pins: `LCD_GND`, `LCD_VCC`
-   - Display timeout functionality
+   - Display timeout: 30 seconds (auto power-off)
+   - Power-on on keypad activity
+   - Shows system name "BMS SAFE" with battery percentage
 
 2. **Fingerprint Sensor** (Adafruit)
    - Connected via `Serial3` (`mySerial`)
@@ -82,6 +88,16 @@ This is an Arduino-based security system for a keypad-controlled door lock with 
 
 10. **Keypad** (Adafruit Keypad)
     - Character input and navigation
+    - Special function keys (ENTER, CANCEL, LOCK, etc.)
+
+11. **Battery Monitoring**
+    - Analog input for battery voltage
+    - Battery percentage calculation (0-100%)
+    - Displayed on LCD initialization screen
+
+12. **Siren System**
+    - Dual siren outputs: `siren_pin[0]` and `siren_pin[1]`
+    - Activated on alarms (temperature, vibration, gun point)
 
 ---
 
@@ -196,23 +212,35 @@ WRONG_USER → DEFAULT (if fail_count >= 2, send alert)
 #### Second Authentication Failure
 When the second authentication (user password/fingerprint) fails:
 
+**Password-based Authentication (`verify_dual_password()`):**
 1. **First Failure:**
-   - `user_bio_auth_fail_count` increments
-   - User stays on "USER PASS/BIO" screen for retry
-   - No alert sent
+   - `user_bio_auth_fail_count++` (increments by 1)
+   - If `user_bio_auth_fail_count >= 1`: 
+     - `update_queue(AUTH_FAIL_MSG, MASTER_USER_ID)` is called immediately
+     - Alert message sent to master user
+     - System returns to MAIN screen
+     - `first_user_verified` reset to 0
+     - Failure count reset to 0
+   - User does NOT get a retry for password failures
 
-2. **Second Failure:**
-   - `user_bio_auth_fail_count >= 2`
-   - `update_queue(AUTH_FAIL_MSG, MASTER_USER_ID)` is called
-   - Alert message sent to master user
-   - System returns to MAIN screen
-   - `first_user_verified` reset to 0
-   - Failure count reset to 0
+**Fingerprint-based Authentication (`fingerprint_manager_fsm()`):**
+1. **First Failure:**
+   - `user_bio_auth_fail_count = user_bio_auth_fail_count + 2` (increments by 2)
+   - If `user_bio_auth_fail_count >= 2`:
+     - `update_queue(AUTH_FAIL_MSG, MASTER_USER_ID)` is called
+     - Alert message sent to master user
+     - System returns to MAIN screen
+     - `first_user_verified` reset to 0
+     - Failure count reset to 0
+   - If `user_bio_auth_fail_count < 2`:
+     - User stays on "USER PASS/BIO" screen for retry
+     - No alert sent yet
 
-**Implementation:**
-- In `verify_dual_password()`: Password failures tracked
-- In `fingerprint_manager_fsm()`: Fingerprint failures tracked in `FINGERPRINT_FSM_STATE_WRONG_USER`
-- Both paths send `AUTH_FAIL_MSG` on 2nd failure
+**Note:** The failure count is reset to 0 when:
+- Successfully entering the USER PASS/BIO screen
+- Successful authentication
+- Canceling from USER PASS/BIO screen
+- MAIN screen timeout
 
 ---
 
@@ -258,9 +286,17 @@ FINGERPRINT_FSM_STATE_DOOR_UNLOCKED (5) - Authentication successful
 
 ```c
 GPA_DO_NOTHING (0)    - No action
-GPA_SEND_MESSAGE (1)  - Send alert message
+GPA_SEND_MESSAGE (1)  - Send alert message to all users
 GPA_CALL (2)          - Make emergency call
 ```
+
+**Gun Point Activation Flow:**
+- Triggered by gun point activation, temperature alarm, or vibration alarm
+- Sends alerts to all configured users (except triggering user for gun point)
+- Activates sirens
+- Generates OTP for deactivation
+- Turns off LCD display
+- Requires OTP input to deactivate alarms
 
 ---
 
@@ -294,15 +330,18 @@ Manages fingerprint authentication state machine.
 
 #### `void check_if_door_access_is_allowed(uint8_t user_id)`
 Checks if user has permission to access door.
-- Validates IR sensor alignment
-- Checks time-based access restrictions
+- Validates IR sensor alignment (via `is_door_aligned_by_ir()`)
+- Checks time-based access restrictions (via `check_if_user_is_allowed_in_time_slot()`)
 - Increments door open count
-- Sets door open command
+- Writes door open count to EEPROM
+- Sets `b_command_open_door = 1` to initiate door opening
+- Sets appropriate display screen (MASTER_MAIN for master, USER for regular users)
 
 #### `bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)`
 Validates if current time is within user's allowed access window.
-- Compares current time with `in_time` and `out_time`
-- Returns true if access allowed
+- Checks if time-based access is configured for user
+- Compares current time (hour*100 + minute) with `in_time` and `out_time`
+- Returns true if access allowed (currently always returns 1 - time check logic needs implementation)
 
 #### `void open_door()`
 Initiates door opening sequence.
@@ -513,9 +552,11 @@ void SendSMS(char *number, char *message)
 
 ### Alert Recipients
 
-- **Master User**: Receives all alerts (index 0)
-- **Affected User**: Receives door open/close notifications
-- **Gun Point Alerts**: Sent to all configured users
+- **Master User**: Receives all alerts (index 0, User ID 1)
+- **Affected User**: Receives door open/close notifications for their own actions
+- **Gun Point Alerts**: Sent to all configured users except the triggering user
+- **Temperature Alarms**: Sent to all configured users
+- **Vibration Alarms**: Sent to all configured users
 
 ---
 
@@ -562,6 +603,36 @@ Index 27: User 28
 
 ---
 
+## OTP (One-Time Password) System
+
+### OTP Generation
+The system generates a random 6-digit OTP for alarm deactivation:
+- Generated when temperature, vibration, or gun point alarms trigger
+- Stored in `generated_otp[6]` array
+- Also available as character array `char_generated_otp[6]`
+- Master OTP: `{4, 5, 5, 5, 5, 6}` (hardcoded for testing/emergency)
+
+### OTP Input Flow
+1. When alarm triggers (temperature/vibration/gun point), system displays OTP input screen
+2. User must enter correct OTP to deactivate alarms
+3. OTP validation in `input_otp_fsm()` function
+4. On successful match: Alarms deactivated, sirens turned off, system returns to normal
+5. On failure: System remains in alarm state
+
+### OTP States
+- `OTP_MATCHED (19)`: OTP successfully validated
+- `OTP_NOT_MATCHED (20)`: OTP validation failed
+
+### OTP Generation Function
+```c
+void generate_random_otp()
+```
+- Generates 6 random digits based on current time
+- Uses minute and hour values as seed
+- Stores in both numeric and character formats
+
+---
+
 ## Configuration
 
 ### User Configuration
@@ -601,8 +672,19 @@ Index 27: User 28
 - Access denied outside time window
 
 #### Buzzer Configuration
-- Set buzzer timeout
+- Set buzzer timeout (stored in EEPROM)
 - Configure alarm behavior
+- Buzzer screen accessible from master menu (option 8)
+
+#### Alpha Speed Configuration
+- Configure alpha input speed
+- Stored in EEPROM
+- Affects character input rate
+
+#### Display Timeout
+- Configurable LCD auto-off timeout
+- Default: 30 seconds
+- Power-on on keypad activity
 
 ---
 
@@ -686,18 +768,32 @@ Index 27: User 28
 
 ### Display Screens
 
+#### Initialization Screen
+```
+   BMS SAFE
+....WELCOME....
+```
+(Shows battery percentage and date/time on startup)
+
 #### Main Screen (MAIN)
 ```
 PASSWORD:
 [Input area]
 ```
+(Displays "PASSWORD:" prompt, user enters master password)
 
 #### Master Main Menu (MASTER_MAIN)
 ```
 [Menu options displayed]
 1. Add User
 2. Remove User
-...
+3. Password
+4. Date/Time
+5. Mobile Number
+6. Alpha
+7. Backup
+8. Buzzer
+9. Fingerprint
 ```
 
 #### User Pass/Bio Screen
@@ -705,12 +801,23 @@ PASSWORD:
 USER PASS/BIO :
 [Waiting for input]
 ```
+(Displayed after master authentication, waiting for user password/fingerprint)
 
 #### Door Status
 ```
 OPENING DOOR [count]
 DOOR OPENED  [count]
 CLOSING DOOR [count]
+ERROR IN OPENING
+ERROR IN CLOSING!!
+```
+
+#### Error Messages
+```
+Invld Password!!
+Sensor Not Aligned!!
+USER FINGERPRNT NOT MATCHED!
+MASTER FINGERPRNT NOT MATCHED!
 ```
 
 ### User Feedback
@@ -724,29 +831,44 @@ CLOSING DOOR [count]
 ## Security Features
 
 ### Dual Authentication
-- Master must authenticate first
-- User must authenticate second
+- Master must authenticate first (password or fingerprint)
+- User must authenticate second (password or fingerprint)
 - Prevents unauthorized access
+- Two independent authentication methods supported
 
 ### Failure Tracking
-- Tracks authentication failures
-- Alerts on repeated failures
-- Automatic lockout after 2 failures
+- Tracks authentication failures via `user_bio_auth_fail_count`
+- Password failures: Alert sent on first failure
+- Fingerprint failures: Alert sent on first failure (count increments by 2)
+- Automatic return to MAIN screen after failure
+- Failure count resets on successful authentication or screen timeout
 
 ### Time-based Access
-- Configurable access windows
-- Per-user time restrictions
-- Automatic denial outside window
+- Configurable access windows per user
+- In/out time stored in EEPROM
+- Format: HH:MM (24-hour format)
+- Automatic denial outside configured window (implementation pending)
 
 ### Alert System
-- Real-time SMS alerts
-- Multiple alert types
-- Queue-based delivery
+- Real-time SMS alerts via GSM module
+- Multiple alert types (7 different message types)
+- Queue-based delivery (10 message queue)
+- Automatic retry if GSM unavailable
+- Alert recipients configurable per message type
+
+### Alarm Systems
+- **Temperature Alarm**: Triggers when temperature exceeds 60°C threshold
+- **Vibration Alarm**: Detects vibration and triggers alarm
+- **Gun Point Activation**: Emergency activation system
+- **OTP System**: One-time password required to deactivate alarms
+- **Siren Control**: Dual siren system (pins 0 and 1)
 
 ### Audit Trail
-- Door open count tracking
-- EEPROM logging
-- Event timestamps
+- Door open count tracking (stored in EEPROM)
+- EEPROM logging of all user data
+- Event timestamps via RTC
+- Battery percentage monitoring
+- SD card logging support (if SD card attached)
 
 ---
 
@@ -766,20 +888,24 @@ CLOSING DOOR [count]
 
 ### Timeouts
 ```c
-#define TEMPERATURE_THRESHOLD 60  // Temperature alarm threshold (°C)
-#define DOOR_OPEN_TIMEOUT         // Door opening timeout (ms)
-#define DOOR_OPEN_ERROR_TIMEOUT   // Error recovery timeout (ms)
-#define display_on_timeout       // LCD auto-off timeout (ms)
+#define TEMPERATURE_THRESHOLD 60        // Temperature alarm threshold (°C)
+#define DOOR_OPEN_TIMEOUT 10000         // Door opening timeout (10 seconds)
+#define DOOR_OPEN_ERROR_TIMEOUT 5000    // Error recovery timeout (5 seconds)
+#define GUN_POINT_PRESS_TIMEOUT 3000    // Gun point press timeout (3 seconds)
+uint16_t display_on_timeout = 30000    // LCD auto-off timeout (30 seconds)
 ```
 
 ### Pin Definitions
 ```c
-dc_motor_pin[2] = {2, 5}     // Motor control pins
-sensor_pin[2] = {48, 47}     // Door sensors
-em_lock_control_pin = 6      // Electromagnetic lock
-ir_rx_pin = A0               // IR alignment sensor
+dc_motor_pin[2] = {2, 5}     // Motor control pins (CW/CCW)
+sensor_pin[2] = {48, 47}     // Door sensors (open/close)
+em_lock_control_pin = 6      // Electromagnetic lock control
+ir_rx_pin = A0               // IR alignment sensor (analog)
 buzzer_pin = 45              // Buzzer output
-ONE_WIRE_BUS = 42            // Temperature sensor
+ONE_WIRE_BUS = 42            // Temperature sensor (OneWire bus)
+siren_pin[2]                 // Dual siren outputs
+LCD_GND, LCD_VCC             // LCD power control pins
+battery_analog_input          // Battery voltage monitoring (analog)
 ```
 
 ---
@@ -787,11 +913,13 @@ ONE_WIRE_BUS = 42            // Temperature sensor
 ## Development Notes
 
 ### TODO Items
-- Door open/close FSM implementation
-- Temperature sensor FSM implementation
-- Vibration sensor FSM implementation
-- Enhanced error recovery
+- Complete door open/close FSM implementation (basic structure exists)
+- Complete temperature sensor FSM implementation (monitoring active, FSM pending)
+- Complete vibration sensor FSM implementation (monitoring active, FSM pending)
+- Implement time-based access control logic (configuration exists, validation pending)
+- Enhanced error recovery mechanisms
 - Additional security features
+- Complete gun point activation FSM (basic structure exists)
 
 ### Debugging
 - Enable `DEBUG` define for serial output
@@ -819,9 +947,15 @@ ONE_WIRE_BUS = 42            // Temperature sensor
 - EEPROM persistence
 
 ### Recent Changes
-- Fixed 2nd authentication failure handling
-- Improved failure count tracking
-- Enhanced alert system
+- Implemented dual authentication system (master + user)
+- Added fingerprint authentication support
+- Integrated GSM alert system
+- Added temperature and vibration alarm systems
+- Implemented gun point activation system
+- Added OTP system for alarm deactivation
+- Battery monitoring and display
+- Door control with sensor feedback
+- Time-based access control (configuration ready)
 
 ---
 
