@@ -279,9 +279,11 @@ void UIStateMachine::handleKeypadInput() {
     Serial.print(F("Keypad event: "));
     Serial.print((char)e.bit.KEY);
     
+    // Handle keypad events EXACTLY like original code
     if (e.bit.EVENT == KEY_JUST_PRESSED) {
-      pressTime = millis();
-      Serial.println(F(" PRESSED"));
+      pressTime = millis();  // Store press time (like original: prss_time = millis())
+      Serial.print((char)e.bit.KEY);
+      Serial.println(F(" pressed"));
       if (lcdState == LCD_STATE_ON) {
         // Play a short beep for keypress (use tone() directly like original code)
         tone(SystemConfig::BUZZER_PIN, pgm_read_word(&melody[0]), 200);
@@ -290,37 +292,34 @@ void UIStateMachine::handleKeypadInput() {
       }
     }
     else if (e.bit.EVENT == KEY_JUST_RELEASED) {
+      // Calculate time difference (like original: time_difference = millis() - prss_time)
       timeDifference = millis() - pressTime;
-      Serial.print(F(" RELEASED (time: "));
-      Serial.print(timeDifference);
-      Serial.println(F("ms)"));
       
-      if (timeDifference < SystemConfig::KEY_DEBOUNCE_DELAY) {
-        Serial.println(F("Ignoring short press (debounce)"));
-        continue;  // Debounce: ignore very short presses
+      // Debounce check (like original: if (time_difference < 5))
+      if (timeDifference < 5) {
+        // debounce: ignore very short presses (like original)
+        continue;
       }
       
+      // Store key (like original: key = (char)e.bit.KEY)
       key = (char)e.bit.KEY;
+      Serial.print(F("key: "));
+      Serial.println(key);
+      
+      // Reset display timer (like original: display_on_timer = millis())
+      displayOnTimer = millis();
+      
+      // Store release time (for internal use)
       releaseTime = millis();
-      rels_time = millis();  // Store release time for alpha input (like original code)
-      displayOnTimer = millis();  // Reset display timeout on any keypress (like original)
       
-      Serial.print(F("[Keypad] Key processed: '"));
-      Serial.print(key);
-      Serial.print(F("' (code="));
-      Serial.print((int)key);
-      Serial.print(F(", rels_time="));
-      Serial.print(rels_time);
-      Serial.println(F(")"));
-      
+      // Process key based on type (like original switch statement)
       switch (key) {
-        case KEY_POWER:
-          Serial.println(F("[Keypad] POWER key pressed"));
-          // Lock the safe and turn off display
+        case KEY_POWER:  // POWER is '!' but not in keymap, so this case won't be hit
+          // LOCK the safe and off the display
           break;
-        case KEY_MUTE: {
-          Serial.println(F("[Keypad] MUTE key pressed"));
-          // Toggle mute setting
+        case KEY_MUTE: {  // MUTE is '^'
+          // toggle the mute setting (like original)
+          Serial.println(F("MUTE PRESSED!"));
           BuzzerController* buzzer = mainSystem->getBuzzerController();
           if (buzzer != nullptr) {
             buzzer->turnOff();
@@ -328,35 +327,26 @@ void UIStateMachine::handleKeypadInput() {
           doorOpenTime = millis();
           break;
         }
-        case KEY_LOCK: {
-          Serial.println(F("[Keypad] LOCK key pressed"));
-          // Lock the door
+        case KEY_LOCK: {  // LOCK is '*'
+          // LOCK the safe and off the display (like original)
+          rels_time = millis();  // Set rels_time for LOCK key (like original line 1462)
           isDisplayed = false;
           DoorController* door = mainSystem->getDoorController();
           if (door != nullptr) {
             door->closeDoor(currentUserID);
           }
+          Serial.println(F("4442"));
           setState(LOCK_DOOR_STATE);
           break;
         }
         default:
+          // Regular key pressed (like original default case - lines 1470-1477)
           if (lcdState == LCD_STATE_ON) {
-            Serial.print(F("[Keypad] Regular key - setting isNewKey. LCD state: "));
-            Serial.print((int)lcdState);
-            Serial.print(F(", Current state: "));
-            Serial.print((int)currentState);
-            Serial.print(F(", rels_time="));
-            Serial.println(rels_time);
-            
-            // Store release time for alpha input (like original code: rels_time = millis())
-            // rels_time already set above
-            
+            Serial.println(F("pressed default case"));
+            rels_time = millis();  // Set rels_time for regular keys (like original line 1474)
             isNewKey = true;
             prev_rels_time_for_alpha = rels_time;  // Initialize for alpha input timing
-            Serial.println(F("[Keypad] isNewKey set to TRUE"));
             break;
-          } else {
-            Serial.println(F("[Keypad] LCD off - ignoring key"));
           }
       }
     }
