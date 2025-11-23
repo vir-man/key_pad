@@ -1295,7 +1295,7 @@ const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
-#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+// #define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
 
 
 bool is_door_aligned_by_ir()
@@ -1913,10 +1913,17 @@ bool prev_vibration_sensor_pin_status = 0;
 bool vibration_started = 0;
 
 unsigned long vibration_read_timer;
-unsigned int vibration_read_time_interval = 10000;
-uint16_t vibration_change_counter = 0;
+const uint16_t vibration_read_time_interval = 10000UL;  // Constant (saves 2 bytes RAM)
+uint8_t vibration_change_counter = 0;  // Changed from uint16_t (saves 1 byte) - max value is 15
 
 uint8_t temperature_counter = 0;
+
+// PROGMEM strings for temp_task (saves ~100 bytes RAM)
+const char TEMP_STR_VIB_START[] PROGMEM = "Vibration Started!";
+const char TEMP_STR_VIB_COUNTER[] PROGMEM = "Vibration_counter -->>";
+const char TEMP_STR_VIB_ALARM[] PROGMEM = "Vibration alarm Triggered!!";
+const char TEMP_STR_VIB_STOP[] PROGMEM = "Vibration Stopped!";
+const char TEMP_STR_TEMP_VALUE[] PROGMEM = "Temperature value is : ";
 
 void temp_sen_init()
 {
@@ -1930,72 +1937,101 @@ void read_temperature()
   temperature_read_timeout = millis();
 }
 
+// Helper function to trigger alarm (reduces code duplication)
+inline void trigger_alarm(bool &alarm_flag, uint8_t &counter)
+{
+  alarm_flag = 1;
+  generate_random_otp();
+  lcd_power_off();
+  siren_on(siren_pin[0]);
+  siren_on(siren_pin[1]);
+  counter = 0;
+}
+
+// Helper to print PROGMEM string
+inline void print_temp_msg_P(const char* msg)
+{
+  char buffer[30];
+  strcpy_P(buffer, msg);
+  Serial.println(buffer);
+}
+
+// Optimized temperature & vibration sensor task
 void temp_task()
 {
+  // Cache millis() once (avoid multiple calls)
+  unsigned long current_millis = millis();
+  
+  // --- VIBRATION SENSOR HANDLING ---
   vibration_sensor_pin_status = digitalRead(vibration_sensor_pin);
+  
+  // Only process on state change
   if (prev_vibration_sensor_pin_status != vibration_sensor_pin_status)
   {
     prev_vibration_sensor_pin_status = vibration_sensor_pin_status;
-    //    Serial.print("Vibration sensor status :");
-    //    Serial.println(prev_vibration_sensor_pin_status);
+    
     if (vibration_sensor_pin_status)
     {
-
+      // Start tracking vibration on first detection
       if (vibration_change_counter < 2)
       {
         vibration_started = 1;
-        Serial.println("Vibration Started!------------------------------>");
+        print_temp_msg_P(TEMP_STR_VIB_START);
       }
+      
+      // Update timer if vibration is being tracked
       if (vibration_started)
       {
-        vibration_read_timer = millis();
+        vibration_read_timer = current_millis;
       }
+      
       vibration_change_counter++;
-      Serial.print("Vibration_counter -->>");
+      
+      #ifdef DEBUG
+      Serial.print(F("Vibration_counter -->> "));
       Serial.println(vibration_change_counter);
+      #endif
+      
+      // Trigger alarm after 15 vibrations
       if (vibration_change_counter > 15)
       {
         vibration_started = 0;
-        b_vibration_alarm_triggered = 1;
-        siren_on(siren_pin[0]);
-        siren_on(siren_pin[1]);
-        generate_random_otp();
-        vibration_change_counter = 0;
-        Serial.println("Vibration alarm Triggered!!------------------------------>");
-        lcd_power_off();
-        // lcd_state = LCD_STATE_OFF;
-      }
-    }
-    if (vibration_started)
-    {
-      if (millis() - vibration_read_timer > vibration_read_time_interval)
-      {
-        vibration_started = 0;
-        vibration_change_counter = 0;
-        Serial.println("Vibration Stopped!------------------------------>");
+        trigger_alarm(b_vibration_alarm_triggered, vibration_change_counter);
+        print_temp_msg_P(TEMP_STR_VIB_ALARM);
       }
     }
   }
-
-  if (millis() - temperature_read_timeout > temperature_read_time_interval)
+  
+  // Check for vibration timeout (no vibration for 10 seconds)
+  if (vibration_started && (current_millis - vibration_read_timer > vibration_read_time_interval))
+  {
+    vibration_started = 0;
+    vibration_change_counter = 0;
+    print_temp_msg_P(TEMP_STR_VIB_STOP);
+  }
+  
+  // --- TEMPERATURE SENSOR HANDLING ---
+  if (current_millis - temperature_read_timeout > temperature_read_time_interval)
   {
     read_temperature();
+    
+    // Only process if temperature changed
     if (prev_temperature_value != temperature_value)
     {
       prev_temperature_value = temperature_value;
+      
       if (temperature_value > TEMPERATURE_THRESHOLD)
       {
+        // Increment counter (capped at 200 to prevent overflow)
         if (temperature_counter < 200)
           temperature_counter++;
-
+        
+        // Trigger alarm after 3 consecutive high readings
         if (temperature_counter > 3)
         {
-          b_temperature_alarm_triggerd = 1;
-          generate_random_otp();
-          lcd_power_off();
-          siren_on(siren_pin[0]);
-          siren_on(siren_pin[1]);
-          // lcd_state = LCD_STATE_OFF;
+          trigger_alarm(b_temperature_alarm_triggerd, temperature_counter);
+          
+          // Activate gun point automation if idle
           if (gpa_state == GPA_DO_NOTHING)
           {
             gpa_state = GPA_SEND_MESSAGE;
@@ -2004,11 +2040,14 @@ void temp_task()
       }
       else
       {
+        // Reset counter only if alarm not already triggered
         if (!b_temperature_alarm_triggerd)
           temperature_counter = 0;
       }
     }
-    Serial.print("Temperature value is : ");
+    
+    // Print temperature (using F() macro to save RAM)
+    Serial.print(F("Temperature value is : "));
     Serial.println(temperature_value);
   }
 }
