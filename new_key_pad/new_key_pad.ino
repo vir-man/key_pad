@@ -5055,16 +5055,15 @@ void gsm_module_task()
 {
   if (Serial.available() > 0)
   {
-    char c = Serial.read();
-    Serial.print(c);
-    // uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
-    // if (len > 0)
-    // {
-    //   Serial.println(serial_buffer);
-    //   process_string(serial_buffer, len);
-    // }
+    // Use buffered reading to capture complete messages
+    uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
+    if (len > 0)
+    {
+      Serial.println(serial_buffer);
+      process_string(serial_buffer, len);
+    }
   }
-  return;
+  // return;
   /*
    if (Serial.available() > 0)
      switch (Serial.read())
@@ -6755,7 +6754,7 @@ void lcd_power_off()
 void setup()
 {
 
-  Serial.begin(115200);
+  Serial.begin(9600);
   SIM7600.begin(115200); // Setting the baud rate of GSM Module
   finger_print_sensor_init();
   wdt_disable();
