@@ -1622,71 +1622,68 @@ void init_dc_motor()
   // close_door();
   // b_command_close_door = 1;
 }
+// Helper function to handle door motor stop and error clearing
+inline void stop_door_motor_and_clear_error(bool &is_moving, bool &error_flag)
+{
+  dc_motor_stop();
+  is_moving = 0;
+  if (error_flag)
+  {
+    error_flag = 0;
+    is_displayed = 0;
+  }
+}
+
+// Optimized DC motor task
 void dc_motor_task()
 {
+  // Read IR sensor state (only update if changed)
   ir_state = digitalRead(ir_rx_pin);
   if (prev_ir_state != ir_state)
   {
     prev_ir_state = ir_state;
   }
 
-  for (char i = 0; i < 2; i++)
+  // Process door sensors (optimized loop with uint8_t)
+  for (uint8_t i = 0; i < 2; i++)
   {
-    door_sensor_state[i] = digitalRead(sensor_pin[i]);
-    if (door_sensor_state[i] != prev_door_sensor_state[i])
+    bool current_sensor_state = digitalRead(sensor_pin[i]);
+    
+    // Only process on state change
+    if (current_sensor_state != prev_door_sensor_state[i])
     {
-      prev_door_sensor_state[i] = door_sensor_state[i];
-      if (i == 0)
-      {
-        if (is_door_open())
-        {
-          Serial.println(F("DOOR OPEN"));
-          // b_command_close_door = 1;
-        }
-        else
-        {
-          Serial.println(F("DOOR OPEN SENSOR UNHIT"));
-        }
-      }
-      else if (i == 1)
-      {
-        if (is_door_close())
-        {
-          Serial.println(F("DOOR CLOSE"));
-        }
-        else
-        {
-          Serial.println(F("DOOR CLOSE SENSOR UNHIT"));
-        }
+      prev_door_sensor_state[i] = current_sensor_state;
+      door_sensor_state[i] = current_sensor_state;
+      
+      // Print door state on sensor change
+      if (i == 0) {
+        Serial.println(is_door_open() ? F("DOOR OPEN") : F("DOOR OPEN SENSOR UNHIT"));
+      } else {
+        Serial.println(is_door_close() ? F("DOOR CLOSE") : F("DOOR CLOSE SENSOR UNHIT"));
       }
     }
   }
+  
+  // Check if door reached target position while opening
   if (is_door_opening && is_door_open())
   {
-    dc_motor_stop();
-    is_door_opening = 0;
-    if (b_error_in_door_open)
-    {
-      b_error_in_door_open = 0;
-      is_displayed = 0;
-    }
+    stop_door_motor_and_clear_error(is_door_opening, b_error_in_door_open);
   }
+  
+  // Check if door reached target position while closing
   if (is_door_closing && is_door_close())
   {
-    dc_motor_stop();
-    is_door_closing = 0;
-    if (b_error_in_door_close)
-    {
-      b_error_in_door_close = 0;
-      is_displayed = 0;
-    }
+    stop_door_motor_and_clear_error(is_door_closing, b_error_in_door_close);
   }
-  if (b_command_close_door and is_door_aligned_by_ir())
+  
+  // Process door commands
+  if (b_command_close_door && is_door_aligned_by_ir())
   {
     b_command_close_door = 0;
     dc_motor_stop();
     close_door();
   }
+  
   if (b_command_open_door)
   {
     b_command_open_door = 0;
@@ -6756,42 +6753,38 @@ void ResetModule()
 /*************** GSM CODE [END] ****************/
 /******** BUZZER [START] *********/
 
+// Buzzer constants
+#define BUZZER_INTERVAL_MS 1000UL      // Buzzer toggle interval (1 second)
+#define BUZZER_TONE_DURATION_MS 200    // Duration of each beep
+
+// Optimized buzzer task
 void buzzer_task()
 {
-  if (b_buzzer_on)
-  {
-    // for (int thisNote = 0; thisNote < 8; thisNote++)
-    // {
-
-    //   // to calculate the note duration, take one second divided by the note type.
-    //   // e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
-    //   int noteDuration = 1000 / noteDurations[thisNote];
-    //   tone(45, pgm_read_word(&melody[thisNote]), noteDuration);
-
-    //   // to distinguish the notes, set a minimum time between them.
-    //   // the note's duration + 30% seems to work well:
-    //   int pauseBetweenNotes = noteDuration * 1.30;
-    //   delay(pauseBetweenNotes);
-    //   // stop the tone playing:
-    //   noTone(45);
-    // }
-    if (millis() - buzzer_timer > 1000)
-    {
-      if (b_sub_buzzer_on)
-      {
-        b_sub_buzzer_on = 0;
-        tone(buzzer_pin, pgm_read_word(&melody[1]), 200);
-      }
-      else
-      {
-        b_sub_buzzer_on = 1;
-        noTone(buzzer_pin);
-      }
-    }
-  }
-  else
+  if (!b_buzzer_on)
   {
     noTone(buzzer_pin);
+    return;  // Early return - most common case
+  }
+  
+  // Cache millis() to avoid multiple calls
+  unsigned long current_millis = millis();
+  
+  // Toggle buzzer every second
+  if (current_millis - buzzer_timer > BUZZER_INTERVAL_MS)
+  {
+    buzzer_timer = current_millis;  // Update timer inline
+    
+    // Toggle buzzer state
+    b_sub_buzzer_on = !b_sub_buzzer_on;
+    
+    if (b_sub_buzzer_on)
+    {
+      tone(buzzer_pin, pgm_read_word(&melody[1]), BUZZER_TONE_DURATION_MS);
+    }
+    else
+    {
+      noTone(buzzer_pin);
+    }
   }
 }
 /******** BUZZER [END] *********/
