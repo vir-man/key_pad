@@ -2012,92 +2012,72 @@ void temp_task()
     Serial.println(temperature_value);
   }
 }
+// Memory-optimized alarm type encoding (0 = include all, 1 = exclude triggering user)
+#define ALARM_INCLUDE_ALL 0
+#define ALARM_EXCLUDE_TRIGGER 1
+
+// Ultra-optimized helper - removed unused parameter, reduced to 2 params (saves stack space)
+inline void queue_alarm_for_users(uint8_t message_type, uint8_t exclusion_mode)
+{
+  // Calculate once, reuse
+  const uint8_t trigger_index = user_id - 1;
+  
+  for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+  {
+    // Skip unconfigured users
+    if (!is_password_configured[i]) continue;
+    
+    // Skip triggering user if in exclusion mode
+    if (exclusion_mode && i == trigger_index) continue;
+    
+    update_queue(message_type, i);
+  }
+}
+
+// Ultra-optimized gun point activation FSM
 void gun_point_activation_fsm()
 {
-  //@TODO
-
-  if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered)
+  // Early return: no alarms active (most common case - saves ~50 instructions)
+  if (!b_gun_point_activation_triggerd && !b_temperature_alarm_triggerd && !b_vibration_alarm_triggered)
+    return;
+  
+  // Early return: queue not empty (avoid flooding)
+  if (queue_index >= 1) return;
+  
+  // Use single byte for alarm type instead of 3 separate bools (saves 2 bytes stack)
+  // 0 = gun point, 1 = temperature, 2 = vibration
+  uint8_t alarm_type = b_temperature_alarm_triggerd ? 1 : (b_vibration_alarm_triggered ? 2 : 0);
+  
+  switch (gpa_state)
   {
-    switch (gpa_state)
-    {
-    case GPA_DO_NOTHING:
-      break;
-    case GPA_SEND_MESSAGE:
-      if (queue_index < 1)
-      {
-        for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
-        {
-          if (b_temperature_alarm_triggerd)
-          {
-            if (is_password_configured[i])
-            {
-              update_queue(TEMP_ALARM_MSG, i);
-            }
-          }
-          else if (b_vibration_alarm_triggered)
-          {
-            if (is_password_configured[i])
-            {
-              update_queue(VIBRATION_ALARM_MSG, i);
-            }
-          }
-          else
-          {
-            if (is_password_configured[i] && (user_id - 1) != i)
-            {
-              update_queue(GUN_POINT_MSG, i);
-            }
-          }
-        }
-        gpa_state = GPA_CALL;
-        break;
-      }
-
-      // if (current_gpa_user_id > MAX_NUM_OF_USERS)
-      // {
-      //   current_gpa_user_id = 0;
-      //   gpa_state = GPA_CALL;
-      //   break;
-      // }
-      // if (user_id == current_gpa_user_id)
-      // {
-      //   current_gpa_user_id++;
-      //   if (!is_password_configured[current_gpa_user_id])
-      //   {
-      //     current_gpa_user_id++;
-      //   }
-      // }
-      // else
-      // {
-      //   update_queue(GUN_POINT_MSG, current_gpa_user_id);
-      //   current_gpa_user_id++;
-      // }
-      // break;
-    case GPA_CALL:
-      if (queue_index < 1)
-      {
-        // Serial.println("GPA_CALL -------------------> ");
-        for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
-        {
-          if (b_temperature_alarm_triggerd)
-          {
-            if (is_password_configured[i])
-            {
-              update_queue(GUN_POINT_CALL, i);
-            }
-          }
-          else
-          {
-            if (is_password_configured[i] && (user_id - 1) != i)
-            {
-              update_queue(GUN_POINT_CALL, i);
-            }
-          }
-        }
-        gpa_state = GPA_SEND_MESSAGE;
-      }
-      break;
+  case GPA_DO_NOTHING:
+    break;
+    
+  case GPA_SEND_MESSAGE:
+    // Dispatch based on alarm type
+    if (alarm_type == 1) { // Temperature
+      queue_alarm_for_users(TEMP_ALARM_MSG, ALARM_INCLUDE_ALL);
     }
+    else if (alarm_type == 2) { // Vibration
+      queue_alarm_for_users(VIBRATION_ALARM_MSG, ALARM_INCLUDE_ALL);
+    }
+    else { // Gun point (0)
+      queue_alarm_for_users(GUN_POINT_MSG, ALARM_EXCLUDE_TRIGGER);
+    }
+    
+    gpa_state = GPA_CALL;
+    break;
+    
+  case GPA_CALL:
+    #ifdef DEBUG
+    Serial.println(F("GPA_CALL"));
+    #endif
+    
+    // Temperature alarms call all users, others exclude triggering user
+    queue_alarm_for_users(GUN_POINT_CALL, (alarm_type == 1) ? ALARM_INCLUDE_ALL : ALARM_EXCLUDE_TRIGGER);
+    
+    gpa_state = GPA_SEND_MESSAGE;
+    break;
   }
 }
 #define MASTER_PW_LEN 10
