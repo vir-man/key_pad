@@ -2,7 +2,12 @@
 #include "Arduino.h"
 #include "stdlib.h"
 #include "stdio.h"
-#define MAX_NUM_OF_USERS 10 // Number including master user
+
+// UNIFIED USER COUNT MACRO - Define once here, use everywhere
+// Change this value to adjust total number of users (including master user)
+#ifndef MAX_NUM_OF_USERS
+#define MAX_NUM_OF_USERS 10  // Number including master user
+#endif
 
 void lcd_task();
 void lcd_init();
@@ -41,7 +46,7 @@ char get_pressed_character();
 #define USER 7
 #define USER_PASSWORD 8
 
-#define ALPHA_SCREEN 9
+#define HOLIDAY_SCREEN 9
 #define BACKUP_SCREEN 10
 
 // extern bool is_password_matched(uint8_t index, char *arr, uint8_t len);
