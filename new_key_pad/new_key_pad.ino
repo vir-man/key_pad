@@ -2119,13 +2119,23 @@ void gun_point_activation_fsm()
 #define MASTER_PW_LEN 10
 uint8_t master_reset_pw[MASTER_PW_LEN] = {'9', '9', '2', '5', '3', '6', '6', '1', '1', '1'};
 
-bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
+// Helper function to check if today is a holiday (blocks all access)
+inline bool is_holiday_blocking_access()
 {
-  // First check if today is a holiday - if so, deny access
   update_date_time_from_rtc();
   if (is_holiday(date, month, year))
   {
-    Serial.println("Holiday - No Access Allowed!");
+    Serial.println(F("Holiday - No Access Allowed!"));
+    return true;
+  }
+  return false;
+}
+
+bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
+{
+  // First check if today is a holiday - if so, deny access
+  if (is_holiday_blocking_access())
+  {
     return 0;
   }
   
@@ -2140,12 +2150,12 @@ bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
 
     if (now_time >= in_time && now_time <= out_time)
     {
-      Serial.println("Access Allowed!");
+      Serial.println(F("Access Allowed!"));
       return 1;
     }
     else
     {
-      Serial.println("No Access Allowed!");
+      Serial.println(F("No Access Allowed!"));
       return 0;
     }
   }
@@ -2160,8 +2170,8 @@ void check_if_door_access_is_allowed(uint8_t user_id)
 {
   is_displayed = 0;
   pass_length = 0;
-  // for (uint8_t i = 0; i < pass_length; i++)
-  //   password[i] = '/0';
+  
+  // Check if door is aligned first
   if (!is_door_aligned_by_ir())
   {
     lcd.clear();
@@ -2179,26 +2189,41 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     return 0;
   }
 
+  // Check if today is a holiday - blocks all access
+  if (is_holiday_blocking_access())
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    LCD_PRINT("HOLIDAY - NO");
+    lcd.setCursor(0, 1);
+    LCD_PRINT("ACCESS ALLOWED!");
+    is_displayed = 0;
+    delay(2000);
+    display_screen = MAIN;
+    pass_length = 0;
+    return 0;
+  }
+
+  // Check time slot restrictions
   if (check_if_user_is_allowed_in_time_slot(user_id))
   {
     b_access_allowed = 1;
   }
+  
   if (b_access_allowed)
   {
     door_open_count = door_open_count + 1;
     write_door_open_count_to_eeprom(door_open_count);
     if (user_id == 1)
     {
-      Serial.println("MASTER_MAIN");
+      Serial.println(F("MASTER_MAIN"));
       display_screen = MASTER_MAIN;
       b_command_open_door = 1;
     }
     else
     {
-      Serial.println("USER");
+      Serial.println(F("USER"));
       display_screen = USER;
-      // if(check_if_user_is_allowed_in_time_slot(user_id)){
-      // }
       b_command_open_door = 1;
     }
     return 1;
@@ -2210,7 +2235,7 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     LCD_PRINT("Invld Password!!");
     is_displayed = 0;
     delay(1000);
-    display_screen = LOCK_DOOR_STATE;
+    display_screen = MAIN;
     pass_length = 0;
     return 0;
   }
@@ -2243,37 +2268,51 @@ bool verify_dual_password(){
   {
     if(first_user_verified){
       if(user_id == 1){
-        Serial.println("MASTER_INPUT_STATE");
+        // Master user - allow access to menu (no door opening)
+        Serial.println(F("MASTER_INPUT_STATE"));
         display_screen = MASTER_INPUT_STATE;
         is_displayed = 0;
         user_bio_auth_fail_count = 0; // Reset on successful authentication
         first_user_verified = 0; // reset first user verified flag as it's just open master menu
       }else{
-        // TODO: Unlock the safe
-        // user_id already set by parse_user_id_from_password
-        Serial.print("USER ID -- >");
+        // Regular user - check holiday before allowing door access
+        Serial.print(F("USER ID -- >"));
         Serial.println(user_id);
-        // call funtion
+        
+        // Holiday check - blocks door access on holidays
+        if (is_holiday_blocking_access())
+        {
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          LCD_PRINT("HOLIDAY - NO");
+          lcd.setCursor(0, 1);
+          LCD_PRINT("ACCESS ALLOWED!");
+          is_displayed = 0;
+          delay(2000);
+          display_screen = MAIN;
+          pass_length = 0;
+          first_user_verified = 0;
+          user_bio_auth_fail_count = 0;
+          return 0;
+        }
+        
+        // Check door access (includes time slot check)
         check_if_door_access_is_allowed(user_id);
         first_user_verified = 0;
         user_bio_auth_fail_count = 0; // Reset on successful authentication
       }
     }else if(user_id == 1){ 
-      // if condition is not required as it should be true by default as main if has two conditions only
-        first_user_verified = 1;
-        is_displayed = 1;
-        // lcd.clear();
-        // lcd.setCursor(0, 0);
-        // lcd.print("ENTER USER PW:");
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        LCD_PRINT("USER PASS/BIO :");
-        pass_length = 0;
-        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
-        memset(password, '\0', 15);
-        user_id = 0; // Invalid user ID
-        user_bio_auth_fail_count = 0; // Reset when entering USER PASS/BIO screen
-      
+      // Master user entering password - proceed to user password/bio screen
+      first_user_verified = 1;
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      LCD_PRINT("USER PASS/BIO :");
+      pass_length = 0;
+      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
+      memset(password, '\0', 15);
+      user_id = 0; // Invalid user ID
+      user_bio_auth_fail_count = 0; // Reset when entering USER PASS/BIO screen
     }
   }
   else
@@ -2665,8 +2704,25 @@ void fingerprint_manager_fsm(){
       }
       break;
     case FINGERPRINT_FSM_STATE_DOOR_UNLOCKED:
-      Serial.print("USER ID Found at ID ");
+      Serial.print(F("USER ID Found at ID "));
       Serial.println(user_id);
+      
+      // Holiday check - blocks door access on holidays
+      if (is_holiday_blocking_access())
+      {
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        LCD_PRINT("HOLIDAY - NO");
+        lcd.setCursor(0, 1);
+        LCD_PRINT("ACCESS ALLOWED!");
+        is_displayed = 0;
+        delay(2000);
+        display_screen = MAIN;
+        first_user_verified = 0;
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+        break;
+      }
+      
       check_if_door_access_is_allowed(user_id);
       first_user_verified = 0;
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
