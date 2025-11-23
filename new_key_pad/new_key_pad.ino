@@ -1266,7 +1266,7 @@ const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
-// #define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
 
 
 bool is_door_aligned_by_ir()
@@ -4270,12 +4270,101 @@ void update_queue(uint8_t message_type, uint8_t message)
 
 bool b_sms_sent_for_open = 0;
 unsigned long applicable_buzzer_timeout = buzzer_timeout;
+
+// LCD string constants stored in PROGMEM to save RAM
+const char LCD_STR_ERROR_OPENING[] PROGMEM = "ERROR IN OPENING";
+const char LCD_STR_OPENING_DOOR[] PROGMEM = "OPENING DOOR ";
+const char LCD_STR_OPENING_DOOR_DOT[] PROGMEM = "OPENING DOOR..";
+const char LCD_STR_DOOR_OPENED[] PROGMEM = "DOOR OPENED  ";
+const char LCD_STR_DOOR_CLOSED[] PROGMEM = "DOOR CLOSED  ";
+const char LCD_STR_CLOSING_DOOR[] PROGMEM = "CLOSING DOOR ";
+const char LCD_STR_CLOSING_DOOR_DOT[] PROGMEM = "CLOSING DOOR ...";
+const char LCD_STR_ERROR_CLOSING[] PROGMEM = "ERROR IN CLOSING!!";
+const char LCD_STR_SENSOR[] PROGMEM = "Sensor";
+const char LCD_STR_NOT_ALIGNED[] PROGMEM = "Not Aligned!!";
+const char LCD_STR_MASTER_SCREEN[] PROGMEM = "MASTER SCREEN";
+
+// Helper function to print PROGMEM strings to LCD
+void lcd_print_P(const char* str) {
+  char buffer[20];  // Buffer for LCD strings (max 16 chars + margin)
+  strcpy_P(buffer, str);
+  lcd.print(buffer);
+}
+
+// Helper function to handle common door opening display logic
+void display_door_opening(const char* msg, bool is_master) {
+  lcd.clear();
+  lcd_print_P(msg);
+  lcd.print(door_open_count);
+  is_displayed = 1;
+  door_open_start_time = millis();
+  b_error_in_door_open = 0;
+}
+
+// Helper function to handle common door opened display logic  
+void display_door_opened(bool is_master) {
+  lcd.clear();
+  lcd_print_P(LCD_STR_DOOR_OPENED);
+  lcd.print(door_open_count);
+  is_displayed = 1;
+  b_error_in_door_open = 0;
+  door_open_time = millis();
+  
+  if (!b_sms_sent_for_open) {
+    b_sms_sent_for_open = 1;
+    if (is_master) {
+      update_queue(OPEN_DOOR_MSG, user_id);
+      update_log_entry(door_open_count, user_id, OPEN);
+    } else {
+      update_queue(OPEN_DOOR_MSG, MASTER_USER_ID + 1);
+      update_queue(OPEN_DOOR_MSG, user_id);
+    }
+  }
+  display_screen = is_master ? MASTER_INPUT_STATE : USER_INPUT_STATE;
+}
+
+// Helper function to handle common door closing display logic
+void display_door_closing() {
+  Serial.println(F("CLOSING DOOR"));
+  door_open_start_time = millis();
+  lcd.clear();
+  lcd_print_P(LCD_STR_CLOSING_DOOR);
+  lcd.print(door_open_count);
+  is_displayed = 1;
+}
+
+// Helper function to handle common door closed display logic
+void display_door_closed(bool is_master) {
+  lcd.clear();
+  lcd_print_P(LCD_STR_DOOR_CLOSED);
+  lcd.print(door_open_count);
+  is_displayed = 0;
+  b_error_in_door_close = 0;
+  b_sms_sent_for_open = 0;
+  
+  if (is_master) {
+    if (user_id != 1) {
+      update_queue(CLOSE_DOOR_MSG, MASTER_USER_ID + 1);
+    }
+  } else {
+    update_queue(CLOSE_DOOR_MSG, MASTER_USER_ID + 1);
+  }
+  update_queue(CLOSE_DOOR_MSG, user_id);
+  update_log_entry(door_open_count, user_id, CLOSE);
+  delay(3000);
+  lcd_power_off();
+  display_screen = MAIN;
+}
+
 void lcd_task()
 {
+  // Cache millis() to avoid multiple calls
+  unsigned long current_millis = millis();
+  
   switch (display_screen)
   {
   case MAIN:
-    if (millis() - display_on_timer > display_on_timeout)
+    if (current_millis - display_on_timer > display_on_timeout)
     {
       pass_length = 0;
       lcd_power_off();
@@ -4292,96 +4381,70 @@ void lcd_task()
       password_input_fsm();
     }
     break;
+    
   case MASTER_MAIN:
     if (!is_displayed)
     {
-
       if (b_error_in_door_open)
       {
         lcd.setCursor(0, 1);
-        lcd.print("ERROR IN OPENING");
+        lcd_print_P(LCD_STR_ERROR_OPENING);
         is_displayed = 1;
       }
       else if (is_door_opening)
       {
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("OPENING DOOR ");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 1;
-        door_open_start_time = millis();
-        b_error_in_door_open = 0;
+        display_door_opening(LCD_STR_OPENING_DOOR, true);
       }
       else if (is_door_open())
       {
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("DOOR OPENED  ");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 1;
-        b_error_in_door_open = 0;
-        door_open_time = millis();
-        if (!b_sms_sent_for_open)
-        {
-          b_sms_sent_for_open = 1;
-          update_queue(OPEN_DOOR_MSG, user_id);
-          update_log_entry(door_open_count, user_id, OPEN);
-        }
-        display_screen = MASTER_INPUT_STATE;
+        display_door_opened(true);
         break;
       }
-      // TODO: Display the number of times the door was opened for master user
     }
     if (!is_door_opening)
     {
       is_displayed = 0;
     }
-    else if (!b_error_in_door_open && millis() - door_open_start_time > DOOR_OPEN_TIMEOUT)
+    else if (!b_error_in_door_open && current_millis - door_open_start_time > DOOR_OPEN_TIMEOUT)
     {
-      Serial.println("ERROR IN OPENING DOOR");
+      Serial.println(F("ERROR IN OPENING DOOR"));
       b_error_in_door_open = 1;
       is_displayed = 0;
-      door_error_start_time = millis();
+      door_error_start_time = current_millis;
     }
-    else if (b_error_in_door_open && millis() - door_error_start_time > DOOR_OPEN_ERROR_TIMEOUT)
+    else if (b_error_in_door_open && current_millis - door_error_start_time > DOOR_OPEN_ERROR_TIMEOUT)
     {
       is_displayed = 0;
-      // b_command_close_door = 1;
-      // resetting variables for openg
       b_command_open_door = 0;
       b_error_in_door_open = 0;
-
       b_command_close_door = 1;
-      Serial.println("4443");
+      Serial.println(F("4443"));
       b_error_in_door_close = 0;
       display_screen = LOCK_DOOR_STATE;
       break;
     }
     break;
+    
   case MASTER_INPUT_STATE:
-    applicable_buzzer_timeout = buzzer_timeout * 60000;
-    // Serial.println(applicable_buzzer_timeout);
-    if (millis() - door_open_time > applicable_buzzer_timeout)
+    applicable_buzzer_timeout = buzzer_timeout * 60000UL;  // Use UL suffix for unsigned long constant
+    if (current_millis - door_open_time > applicable_buzzer_timeout)
     {
       Serial.println(applicable_buzzer_timeout);
-      Serial.println("Buzzer ON");
+      Serial.println(F("Buzzer ON"));
       Serial.println(door_open_time);
-      Serial.println(millis());
-      door_open_time = millis();
+      Serial.println(current_millis);
+      door_open_time = current_millis;
       b_buzzer_on = 1;
     }
     if(!is_displayed){
       is_displayed = 1;
       lcd.clear();
-      lcd.setCursor(0,0);
-      lcd.print("MASTER SCREEN");
+      lcd_print_P(LCD_STR_MASTER_SCREEN);
     }
     if (is_new_key)
     {
       is_new_key = 0;
-      Serial.println("MASTER_MAIN");
+      Serial.println(F("MASTER_MAIN"));
       Serial.println(key);
       switch (key)
       {
@@ -4401,7 +4464,7 @@ void lcd_task()
         is_displayed = 0;
         date_time_len = 0;
         memset(date_time, '\0', 13);
-        Serial.println("MASTER_DAT_TIM");
+        Serial.println(F("MASTER_DAT_TIM"));
         display_screen = MASTER_DAT_TIM;
         break;
       case '5':
@@ -4442,10 +4505,9 @@ void lcd_task()
         display_screen = MAIN;
         break;
       case LOCK:
-        // open_door();
         is_displayed = 0;
         b_command_close_door = 1;
-        Serial.println("4445");
+        Serial.println(F("4445"));
         b_error_in_door_close = 0;
         display_screen = LOCK_DOOR_STATE;
         break;
@@ -4454,6 +4516,7 @@ void lcd_task()
       }
     }
     break;
+    
   case LOCK_DOOR_STATE:
     if (!is_displayed)
     {
@@ -4461,76 +4524,43 @@ void lcd_task()
       {
         lcd.clear();
         lcd.setCursor(0, 1);
-        lcd.print("ERROR IN CLOSING!!");
+        lcd_print_P(LCD_STR_ERROR_CLOSING);
         is_displayed = 0;
       }
       else if (!is_door_aligned_by_ir())
       {
         lcd.clear();
         lcd.setCursor(5, 0);
-        lcd.print("Sensor");
+        lcd_print_P(LCD_STR_SENSOR);
         lcd.setCursor(1, 1);
-        lcd.print("Not Aligned!!");
+        lcd_print_P(LCD_STR_NOT_ALIGNED);
         is_displayed = 0;
         delay(1000);
         b_command_close_door = 0;
         b_command_open_door = 0;
         dc_motor_stop();
-        // display_screen = MAIN;
-        if (user_id == 1)
-        {
-          Serial.println("MASTER_MAIN");
-          display_screen = MASTER_MAIN;
-        }
-        else
-        {
-          Serial.println("USER");
-          display_screen = USER;
-        }
+        
+        display_screen = (user_id == 1) ? MASTER_MAIN : USER;
+        Serial.println(display_screen == MASTER_MAIN ? F("MASTER_MAIN") : F("USER"));
         break;
       }
       else if (is_door_closing)
       {
-        Serial.println("CLOSING DOOR");
-        door_open_start_time = millis();
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("CLOSING DOOR ");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 1;
+        display_door_closing();
         display_screen = LOCK_DOOR_STATE;
         break;
       }
       else if (is_door_close())
       {
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("DOOR CLOSED  ");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 0;
-        b_error_in_door_close = 0;
-        b_sms_sent_for_open = 0;
-        if (user_id != 1)
-        {
-          update_queue(CLOSE_DOOR_MSG, MASTER_USER_ID + 1);
-        }
-        update_queue(CLOSE_DOOR_MSG, user_id);
-        update_log_entry(door_open_count, user_id, CLOSE);
-        delay(3000);
-        lcd_power_off();
-        // lcd_state = LCD_STATE_OFF;
-        display_screen = MAIN;
+        display_door_closed(user_id == 1);
         break;
       }
-      // TODO: Display the number of times the door was opened for master user
     }
     if (!is_door_closing)
     {
       is_displayed = 0;
     }
-    else if (millis() - door_open_start_time > 5000)
+    else if (current_millis - door_open_start_time > 5000)
     {
       b_error_in_door_close = 1;
       is_displayed = 0;
@@ -4596,147 +4626,98 @@ void lcd_task()
       if (b_error_in_door_open)
       {
         lcd.setCursor(0, 1);
-        lcd.print("ERROR IN OPENING");
+        lcd_print_P(LCD_STR_ERROR_OPENING);
         is_displayed = 1;
       }
       else if (is_door_opening)
       {
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("OPENING DOOR..");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 1;
-        door_open_start_time = millis();
-        b_error_in_door_open = 0;
+        display_door_opening(LCD_STR_OPENING_DOOR_DOT, false);
       }
       else if (is_door_open())
       {
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("DOOR OPENED  ");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 1;
-        b_error_in_door_open = 0;
-        if (!b_sms_sent_for_open)
-        {
-          b_sms_sent_for_open = 1;
-          update_queue(OPEN_DOOR_MSG, MASTER_USER_ID + 1);
-          update_queue(OPEN_DOOR_MSG, user_id);
-        }
-        display_screen = USER_INPUT_STATE;
+        display_door_opened(false);
         break;
       }
-      // TODO: Display the number of times the door was opened for master user
     }
     if (!is_door_opening)
     {
       is_displayed = 0;
     }
-    else if (!b_error_in_door_open && millis() - door_open_start_time > DOOR_OPEN_TIMEOUT)
+    else if (!b_error_in_door_open && current_millis - door_open_start_time > DOOR_OPEN_TIMEOUT)
     {
-      Serial.println("ERROR IN OPENING DOOR");
+      Serial.println(F("ERROR IN OPENING DOOR"));
       b_error_in_door_open = 1;
       is_displayed = 0;
-      door_error_start_time = millis();
+      door_error_start_time = current_millis;
     }
-    else if (b_error_in_door_open && millis() - door_error_start_time > DOOR_OPEN_ERROR_TIMEOUT)
+    else if (b_error_in_door_open && current_millis - door_error_start_time > DOOR_OPEN_ERROR_TIMEOUT)
     {
       is_displayed = 0;
-      // b_command_close_door = 1;
-      // resetting variables for openg
       b_command_open_door = 0;
       b_error_in_door_open = 0;
-
       b_command_close_door = 1;
-      Serial.println("4446");
+      Serial.println(F("4446"));
       b_error_in_door_close = 0;
       display_screen = LOCK_DOOR_STATE;
       break;
     }
     break;
+    
   case USER_LOCK_DOOR_STATE:
     if (!is_displayed)
     {
       if (b_error_in_door_close)
       {
         lcd.setCursor(0, 1);
-        lcd.print("ERROR IN CLOSING!!");
+        lcd_print_P(LCD_STR_ERROR_CLOSING);
         is_displayed = 1;
       }
       else if (is_door_closing)
       {
-        Serial.println("CLOSING DOOR");
-        door_open_start_time = millis();
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("CLOSING DOOR ");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 1;
+        display_door_closing();
         display_screen = LOCK_DOOR_STATE;
         break;
       }
       else if (is_door_close())
       {
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("DOOR CLOSED  ");
-        lcd.print(door_open_count);
-        lcd.setCursor(11, 0);
-        is_displayed = 0;
-        b_error_in_door_close = 0;
-        b_sms_sent_for_open = 0;
-        update_queue(CLOSE_DOOR_MSG, MASTER_USER_ID + 1);
-        update_queue(CLOSE_DOOR_MSG, user_id);
-        update_log_entry(door_open_count, user_id, CLOSE);
-        delay(3000);
-        lcd_power_off();
-        // lcd_state = LCD_STATE_OFF;
-        display_screen = MAIN;
+        display_door_closed(false);
         break;
       }
-      // TODO: Display the number of times the door was opened for master user
     }
     if (!is_door_closing)
     {
       is_displayed = 0;
     }
-    else if (millis() - door_open_start_time > 5000)
+    else if (current_millis - door_open_start_time > 5000)
     {
       b_error_in_door_close = 1;
       is_displayed = 0;
     }
     break;
+    
   case USER_INPUT_STATE:
     if (!is_displayed)
     {
       is_displayed = 1;
       lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("OPENING DOOR ");
+      lcd_print_P(LCD_STR_OPENING_DOOR);
       lcd.print(door_open_count);
-      lcd.setCursor(11, 0);
       b_command_open_door = 1;
-      // TODO: Display the number of times the door was opened for master user
     }
     else if (is_new_key)
     {
       is_new_key = 0;
-      Serial.println("USER_MAIN");
+      Serial.println(F("USER_MAIN"));
       switch (key)
       {
-      case 'LOCK':
+      case LOCK:
         open_door();
         lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("CLOSING DOOR ...");
-        lcd.setCursor(11, 0);
+        lcd_print_P(LCD_STR_CLOSING_DOOR_DOT);
         is_displayed = 0;
         display_screen = LOCK_DOOR_STATE;
         b_command_close_door = 1;
-        Serial.println("4447");
+        Serial.println(F("4447"));
         break;
       case '1':
         is_displayed = 0;
@@ -5074,13 +5055,16 @@ void gsm_module_task()
 {
   if (Serial.available() > 0)
   {
-    uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
-    if (len > 0)
-    {
-      Serial.println(serial_buffer);
-      process_string(serial_buffer, len);
-    }
+    char c = Serial.read();
+    Serial.print(c);
+    // uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
+    // if (len > 0)
+    // {
+    //   Serial.println(serial_buffer);
+    //   process_string(serial_buffer, len);
+    // }
   }
+  return;
   /*
    if (Serial.available() > 0)
      switch (Serial.read())
