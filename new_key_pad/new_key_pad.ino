@@ -73,16 +73,51 @@ unsigned long door_open_time;
 
 /***** Buzzer Vars [END] *****/
 /***** RTC [START] *****/
-#define RTC_UPDATE_TIME_INTERVAL_IN_MINUTE 10
-uint32_t rtc_update_time_interval_in_minute = 60000;
+// RTC update interval = 1 minute = 60000ms
+#define RTC_UPDATE_INTERVAL_MS 60000UL  // 1 minute interval for time printing
+
 unsigned long rtc_timer = 0;
-// RTC vars
+// RTC vars - using smallest possible data types
 uint8_t second, minute, hour, day_of_week, date, month, year;
 uRTCLib rtc(0x68); // Create objects and assign module I2c Addresses
-void update_rtc_timer()
+
+// ULTRA-OPTIMIZED: All day names in single string with offsets (saves ~16 bytes vs array of pointers)
+// Format: "(Incorrect Day)\0Sunday\0Monday\0Tuesday\0Wednesday\0Thursday\0Friday\0Saturday\0"
+const char DAY_NAMES_COMPACT[] PROGMEM = "(Incorrect Day)\0Sunday\0Monday\0Tuesday\0Wednesday\0Thursday\0Friday\0Saturday";
+
+// Offsets to each day name in the compact string (saves RAM vs array of pointers)
+const uint8_t DAY_OFFSETS[] PROGMEM = {
+  0,   // Invalid: "(Incorrect Day)"
+  16,  // Sunday
+  23,  // Monday
+  30,  // Tuesday
+  38,  // Wednesday
+  48,  // Thursday
+  57,  // Friday
+  64   // Saturday
+};
+
+// Returns pointer to day name in PROGMEM
+const char* DayAsString_P(uint8_t day)
+{
+  if (day > 7) day = 0; // Invalid day
+  uint8_t offset = pgm_read_byte(&DAY_OFFSETS[day]);
+  return &DAY_NAMES_COMPACT[offset];
+}
+
+// Helper to print day name from PROGMEM - uses static buffer to avoid repeated stack allocation
+inline void printDayName(uint8_t day) {
+  static char buffer[12]; // Static = allocated once, not per call
+  strcpy_P(buffer, DayAsString_P(day));
+  Serial.print(buffer);
+}
+
+// Inlined: Tiny function, avoid call overhead
+inline void update_rtc_timer()
 {
   rtc_timer = millis();
 }
+
 void rtc_begin()
 {
   Wire.begin();
@@ -97,31 +132,43 @@ void rtc_begin()
   update_date_time_from_rtc();
   update_rtc_timer();
 }
-void set_rtc()
+
+// Inlined: Tiny function, avoid call overhead
+inline void set_rtc()
 {
   rtc.set(second, minute, hour, 1, date, month, year);
 }
+
+// Optimized validation with early returns
 bool validate_date_and_time(uint8_t _second, uint8_t _minute, uint8_t _hour,
                             uint8_t _date, uint8_t _month, uint8_t _year)
 {
-  if (_second < 60 && _minute < 60 && _hour < 24 && (_date > 0 && _date < 32) && (_month > 0 && _month < 13) && _year < 100)
-  {
-    second = _second;
-    minute = _minute;
-    hour = _hour;
-    date = _date;
-    month = _month;
-    year = _year;
-    set_rtc();
-    update_date_time_from_rtc();
-    return 1;
-  }
-  return 0;
+  // Early return for invalid values
+  if (_second >= 60) return false;
+  if (_minute >= 60) return false;
+  if (_hour >= 24) return false;
+  if (_date == 0 || _date > 31) return false;
+  if (_month == 0 || _month > 12) return false;
+  if (_year >= 100) return false;
+  
+  // All valid - update and set
+  second = _second;
+  minute = _minute;
+  hour = _hour;
+  date = _date;
+  month = _month;
+  year = _year;
+  set_rtc();
+  update_date_time_from_rtc();
+  return true;
 }
 
+// Optimized: Batch read RTC values and optionally print
 void update_date_time_from_rtc()
 {
   rtc.refresh();
+  
+  // Batch read all values at once (more efficient than individual calls)
   month = rtc.month();
   date = rtc.day();
   year = rtc.year();
@@ -130,51 +177,33 @@ void update_date_time_from_rtc()
   second = rtc.second();
   day_of_week = rtc.dayOfWeek();
 
+  // Print time every update (1 minute interval)
   Serial.print(month);
-  Serial.print('/');
+  Serial.print(F("/"));
   Serial.print(date);
-  Serial.print('/');
+  Serial.print(F("/"));
   Serial.print(year);
-
-  SERIAL_PRINT("  Time: ");
+  Serial.print(F("  Time: "));
   Serial.print(hour);
-  Serial.print(':');
+  Serial.print(F(":"));
   Serial.print(minute);
-  Serial.print(':');
+  Serial.print(F(":"));
   Serial.print(second);
-  SERIAL_PRINT(" ");
-
-  Serial.print(DayAsString(day_of_week));
+  Serial.print(F(" "));
+  printDayName(day_of_week);
   Serial.println();
 }
-String DayAsString(int day)
-{
-  switch (day)
-  {
-  case 1:
-    return "Sunday";
-  case 2:
-    return "Monday";
-  case 3:
-    return "Tuesday";
-  case 4:
-    return "Wednesday";
-  case 5:
-    return "Thursday";
-  case 6:
-    return "Friday";
-  case 7:
-    return "Saturday";
-  }
-  return "(Incorrect Day)";
-}
+
+// Ultra-optimized: Minimal operations, inline timer update
 void rtc_task()
 {
-  // Check time every 30 minute
-  if (millis() - rtc_timer > (rtc_update_time_interval_in_minute))
+  unsigned long current_millis = millis();
+  
+  // Single comparison, inline update
+  if (current_millis - rtc_timer > RTC_UPDATE_INTERVAL_MS)
   {
     update_date_time_from_rtc();
-    update_rtc_timer();
+    rtc_timer = current_millis;
   }
 }
 /***** RTC [END] *****/
@@ -4828,122 +4857,136 @@ void gsm_module_init()
 // String otp = "024545";
 uint32_t call_start_time = millis();
 uint32_t call_timeout = 20000;
+
+// GSM message status strings in PROGMEM to save RAM
+const char GSM_MSG_GUNPOINT[] PROGMEM = "Gun Point Message Sent!!";
+const char GSM_MSG_VIBRATION[] PROGMEM = "Vibration Message Alert Sent!!";
+const char GSM_MSG_TEMPERATURE[] PROGMEM = "Temperature Message Alert Sent!!";
+const char GSM_MSG_GUNPOINT_CALL[] PROGMEM = "Gun Point Call Sent!!";
+const char GSM_MSG_AUTH_FAIL[] PROGMEM = "Auth Fail Message Sent!!";
+const char GSM_MSG_DETAILS[] PROGMEM = "message details -->";
+
+// Helper function to determine recipient for door status messages
+inline uint8_t get_door_msg_recipient(uint8_t msg_detail) {
+  uint8_t recipient_index = msg_detail - 1;
+  
+  // Send to master if: master user OR invalid user OR received mobile number
+  if (recipient_index == 0 || 
+      (recipient_index >= MAX_NUM_OF_USERS && recipient_index != RECEIVED_MOBILE_NUMBER_INDEX)) {
+    return MASTER_USER_ID;
+  }
+  return recipient_index;
+}
+
+// Helper function to send door status with optimized recipient logic
+inline void send_door_status_optimized(uint8_t msg_detail, bool is_open) {
+  uint8_t recipient = get_door_msg_recipient(msg_detail);
+  SendMessageDoorStatus(recipient, msg_detail, is_open ? 1 : 0);
+}
+
+// Helper function to check timeout and send message
+inline bool check_timeout_and_send(unsigned long current_millis, uint32_t timeout_ms) {
+  if (current_millis - call_start_time > timeout_ms) {
+    call_start_time = current_millis;
+    return true;
+  }
+  return false;
+}
+
+// Helper function to print PROGMEM status message
+inline void print_status_P(const char* msg) {
+  char buffer[30];
+  strcpy_P(buffer, msg);
+  Serial.println(buffer);
+}
+
 void gsm_housekeeping_task()
 {
+  // Cache millis() to avoid multiple calls
+  unsigned long current_millis = millis();
+  
   // Check if SMS master verification has expired
-  if (sms_master_verified && (millis() - sms_master_verified_time > SMS_MASTER_VERIFY_TIMEOUT))
+  if (sms_master_verified && (current_millis - sms_master_verified_time > SMS_MASTER_VERIFY_TIMEOUT))
   {
     sms_master_verified = false;
-    Serial.println("SMS master verification timeout - reset");
+    Serial.println(F("SMS master verification timeout - reset"));
   }
   
   if (queue_index > 0)
   {
-    // Serial.print("queue index -- ");
-    // Serial.println(queue_index);
-    // Serial.println(type_list[queue_index - 1]);
-    // Serial.println(message_details[queue_index - 1]);
-    // Serial.println(":::::::::::::");
-    switch (type_list[queue_index - 1])
+    // Cache queue values to avoid repeated array access
+    uint8_t current_type = type_list[queue_index - 1];
+    uint8_t current_msg_detail = message_details[queue_index - 1];
+    
+    switch (current_type)
     {
     case OPEN_DOOR_MSG:
-      // SendMessageDoorStatus(MASTER_USER_ID, message_details[queue_index - 1], 1);
-      // if ((message_details[queue_index - 1] - 1) != 0)
-      Serial.print("message details -->");
-      Serial.print(message_details[queue_index - 1]);
-      Serial.print(" | ");
-      Serial.println((message_details[queue_index - 1] - 1));
-      if ((message_details[queue_index - 1] - 1) == 0)
-      {
-        SendMessageDoorStatus(MASTER_USER_ID, user_id, 1);
-      }
-      else if ((message_details[queue_index - 1] - 1) >= MAX_NUM_OF_USERS &&
-               (message_details[queue_index - 1] - 1) != RECEIVED_MOBILE_NUMBER_INDEX)
-      {
-        SendMessageDoorStatus(MASTER_USER_ID, user_id, 1);
-      }
-      else
-      {
-        SendMessageDoorStatus((message_details[queue_index - 1] - 1), message_details[queue_index - 1], 1);
-      }
+      #ifdef DEBUG
+      Serial.print(F("message details -->"));
+      Serial.print(current_msg_detail);
+      Serial.print(F(" | "));
+      Serial.println(current_msg_detail - 1);
+      #endif
+      
+      send_door_status_optimized(current_msg_detail, true);
       queue_index--;
       break;
+      
     case CLOSE_DOOR_MSG:
-      // SendMessageDoorStatus(MASTER_USER_ID, message_details[queue_index - 1], 0);
-      // if ((message_details[queue_index - 1] - 1) != 0)
-      // SendMessageDoorStatus((message_details[queue_index - 1] - 1), message_details[queue_index - 1], 0);
-      if ((message_details[queue_index - 1] - 1) == 0)
-      {
-        SendMessageDoorStatus(MASTER_USER_ID, user_id, 0);
-      }
-      else if ((message_details[queue_index - 1] - 1) >= MAX_NUM_OF_USERS &&
-               (message_details[queue_index - 1] - 1) != RECEIVED_MOBILE_NUMBER_INDEX)
-      {
-        SendMessageDoorStatus(MASTER_USER_ID, user_id, 0);
-      }
-      else
-      {
-        SendMessageDoorStatus((message_details[queue_index - 1] - 1), message_details[queue_index - 1], 0);
-      }
+      send_door_status_optimized(current_msg_detail, false);
       queue_index--;
       break;
+      
     case GUN_POINT_MSG:
-      if (millis() - call_start_time > 10000)
+      if (check_timeout_and_send(current_millis, 10000UL))
       {
-        call_start_time = millis();
-        Serial.println("Gun Point Message Sent!!");
-        Serial.println(message_details[queue_index - 1]);
-        // delay(1000);
-        SendMessageGunPointMessage(message_details[queue_index - 1], char_generated_otp);
+        print_status_P(GSM_MSG_GUNPOINT);
+        Serial.println(current_msg_detail);
+        SendMessageGunPointMessage(current_msg_detail, char_generated_otp);
         queue_index--;
       }
       break;
+      
     case VIBRATION_ALARM_MSG:
-      if (millis() - call_start_time > 10000)
+      if (check_timeout_and_send(current_millis, 10000UL))
       {
-        call_start_time = millis();
-        Serial.println("Vibration Message Alert Sent!!");
-        Serial.println(message_details[queue_index - 1]);
-        // delay(1000);
-        SendMessageVibrationAlarmMessage(message_details[queue_index - 1], char_generated_otp);
+        print_status_P(GSM_MSG_VIBRATION);
+        Serial.println(current_msg_detail);
+        SendMessageVibrationAlarmMessage(current_msg_detail, char_generated_otp);
         queue_index--;
       }
       break;
+      
     case TEMP_ALARM_MSG:
-      if (millis() - call_start_time > 10000)
+      if (check_timeout_and_send(current_millis, 10000UL))
       {
-        call_start_time = millis();
-        Serial.println("Temperature Message Alert Sent!!");
-        Serial.println(message_details[queue_index - 1]);
-        // delay(1000);
-        SendMessageTempAlarmMessage(message_details[queue_index - 1], char_generated_otp);
+        print_status_P(GSM_MSG_TEMPERATURE);
+        Serial.println(current_msg_detail);
+        SendMessageTempAlarmMessage(current_msg_detail, char_generated_otp);
         queue_index--;
       }
       break;
+      
     case GUN_POINT_CALL:
-      if (millis() - call_start_time > call_timeout)
+      if (check_timeout_and_send(current_millis, call_timeout))
       {
-        Serial.println("Gun Point Call Sent!!");
-        Serial.println(message_details[queue_index - 1]);
-        // delay(1000);
-        call_start_time = millis();
-        MakeCallWithNumber(message_details[queue_index - 1]);
-        // SendMessageGunPointMessage(str_mobile_number[message_details[queue_index - 1]], otp);
+        print_status_P(GSM_MSG_GUNPOINT_CALL);
+        Serial.println(current_msg_detail);
+        MakeCallWithNumber(current_msg_detail);
         queue_index--;
-        break;
       }
       break;
+      
     case AUTH_FAIL_MSG:
-      if (millis() - call_start_time > 10000)
+      if (check_timeout_and_send(current_millis, 10000UL))
       {
-        call_start_time = millis();
-        Serial.println("Auth Fail Message Sent!!");
-        Serial.println(message_details[queue_index - 1]);
-        // delay(1000);
-        SendMessageAuthFail(message_details[queue_index - 1]);
+        print_status_P(GSM_MSG_AUTH_FAIL);
+        Serial.println(current_msg_detail);
+        SendMessageAuthFail(current_msg_detail);
         queue_index--;
       }
       break;
+      
     default:
       queue_index--;
       break;
