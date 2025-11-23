@@ -516,7 +516,9 @@ void printInfo(const char info[])
 /*************** USB HARDWARE SERIAL CODE [END] ****************/
 /***** EEPROM SECTION [START] **/
 
-#define MAX_USER_TO_BE_STORED 10
+// MAX_NUM_OF_USERS is defined in lcd.h (included above)
+// Legacy alias for backward compatibility - use MAX_NUM_OF_USERS instead
+#define MAX_USER_TO_BE_STORED MAX_NUM_OF_USERS
 
 #define EEPROM_STARTING_ADDRESS 0
 
@@ -1256,9 +1258,7 @@ char phone_number[10];
 
 uint8_t ph_len = 0;
 uint8_t pass_length = 0;
-#ifndef MAX_NUM_OF_USERS
-#define MAX_NUM_OF_USERS MAX_USER_TO_BE_STORED
-#endif
+// MAX_NUM_OF_USERS is now defined at the top of the file (line ~520)
 // bool does_user_exist[MAX_NUM_OF_USERS] = {0};  // Removed: redundant with is_password_configured, saves 18 bytes RAM
 
 extern bool check_if_password_is_configured(uint8_t index);
