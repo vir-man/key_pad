@@ -813,11 +813,184 @@ void UIStateMachine::passwordInputFSM() {
     last_call_time = now;
   }
   
+  // ===== FINGERPRINT FSM IMPLEMENTATION =====
+  // This implements the 5-state fingerprint authentication FSM matching the original system
   FingerprintManager* fingerprint = mainSystem->getFingerprintManager();
-  if (fingerprint != nullptr) {
-    // Handle fingerprint authentication
-    // TODO: Implement fingerprint FSM
+  AuthenticationManager* authMgr = mainSystem->getAuthManager();
+  GSMHandler* gsm = mainSystem->getGSMHandler();
+  UserManager* userMgr = mainSystem->getUserManager();
+  
+  if (fingerprint != nullptr && authMgr != nullptr) {
+    int8_t fingerprintID = fingerprint->getFingerprintID();
+    
+    // Only process if a fingerprint is detected (fingerprintID != -1)
+    if (fingerprintID != -1) {
+      if (!firstUserVerified) {
+        // ===== STATE: Waiting for MASTER fingerprint (DEFAULT state) =====
+        if (fingerprintID > 0 && fingerprintID <= SystemConfig::MAX_NUM_OF_USERS) {
+          uint8_t userID = (uint8_t)fingerprintID;
+          
+          // Check if this is the master user (user_id == 1)
+          if (userID == 1) {
+            // ===== MASTER FINGERPRINT MATCHED =====
+            Serial.println(F("[Fingerprint FSM] Master fingerprint verified!"));
+            firstUserVerified = 1;
+            userBioAuthFailCount = 0;  // Reset failure count
+            
+            // Display "USER PASS/BIO" screen
+            lcd->clear();
+            lcd->setCursor(0, 0);
+            lcd->print(F("USER PASS/BIO :"));
+            isDisplayed = true;
+            delay(2000);
+            
+            Serial.println(F("[Fingerprint FSM] Transitioning to ENTER_USER state"));
+          } else {
+            // ===== WRONG MASTER FINGERPRINT (not user 1) =====
+            Serial.print(F("[Fingerprint FSM] Wrong master fingerprint detected: User ID "));
+            Serial.println(userID);
+            
+            lcd->clear();
+            lcd->setCursor(0, 0);
+            lcd->print(F("MASTER FINGERPRNT"));
+            lcd->setCursor(0, 1);
+            lcd->print(F("NOT MATCHED!"));
+            isDisplayed = true;
+            
+            // Send alert for invalid master fingerprint attempt
+            if (gsm != nullptr) {
+              gsm->addToQueue(SystemConfig::AUTH_FAIL_MSG, SystemConfig::MASTER_USER_ID);
+            }
+            
+            delay(2000);
+            isDisplayed = false;
+            
+            Serial.println(F("[Fingerprint FSM] Alert sent, returning to DEFAULT state"));
+          }
+        } else if (fingerprintID == SystemConfig::MAX_NUM_OF_USERS + 2) {
+          // ===== FINGERPRINT NOT FOUND IN DATABASE (when waiting for master) =====
+          Serial.println(F("[Fingerprint FSM] Fingerprint not found in database (master attempt)"));
+          
+          lcd->clear();
+          lcd->setCursor(0, 0);
+          lcd->print(F("MASTER FINGERPRNT"));
+          lcd->setCursor(0, 1);
+          lcd->print(F("NOT MATCHED!"));
+          isDisplayed = true;
+          
+          // Send alert for invalid master fingerprint attempt
+          if (gsm != nullptr) {
+            gsm->addToQueue(SystemConfig::AUTH_FAIL_MSG, SystemConfig::MASTER_USER_ID);
+          }
+          
+          delay(2000);
+          isDisplayed = false;
+        }
+      } else {
+        // ===== STATE: Waiting for USER fingerprint (ENTER_USER state) =====
+        // Master is already verified, now verify user fingerprint
+        
+        if (fingerprintID > 0 && fingerprintID <= SystemConfig::MAX_NUM_OF_USERS) {
+          uint8_t userID = (uint8_t)fingerprintID;
+          
+          Serial.print(F("[Fingerprint FSM] User fingerprint detected: User ID "));
+          Serial.println(userID);
+          
+          // Check if user has access (time slot and holidays)
+          if (authMgr->checkAccessAllowed(userID)) {
+            // ===== USER FINGERPRINT MATCHED AND ACCESS ALLOWED =====
+            Serial.println(F("[Fingerprint FSM] User fingerprint verified and access allowed!"));
+            
+            currentUserID = userID;
+            checkIfDoorAccessIsAllowed(userID);
+            firstUserVerified = 0;
+            userBioAuthFailCount = 0;  // Reset failure count
+            
+            Serial.println(F("[Fingerprint FSM] Door access granted, transitioning to DOOR_UNLOCKED state"));
+          } else {
+            // ===== USER FINGERPRINT MATCHED BUT ACCESS DENIED (holiday or time slot) =====
+            Serial.println(F("[Fingerprint FSM] User fingerprint matched but access denied (holiday/time slot)"));
+            
+            lcd->clear();
+            lcd->setCursor(0, 0);
+            lcd->print(F("Holiday - No"));
+            lcd->setCursor(0, 1);
+            lcd->print(F("Access Allowed!"));
+            isDisplayed = true;
+            
+            // Increment failure count by 2 for fingerprint failures
+            userBioAuthFailCount += 2;
+            Serial.print(F("[Fingerprint FSM] Failure count: "));
+            Serial.println(userBioAuthFailCount);
+            
+            if (userBioAuthFailCount >= 2) {
+              // ===== 2nd FAILURE: Send alert and reset =====
+              Serial.println(F("[Fingerprint FSM] 2nd failure - sending alert and resetting"));
+              
+              if (gsm != nullptr) {
+                gsm->addToQueue(SystemConfig::AUTH_FAIL_MSG, SystemConfig::MASTER_USER_ID);
+              }
+              
+              // Reset to MAIN screen
+              firstUserVerified = 0;
+              userBioAuthFailCount = 0;
+              delay(2000);
+              isDisplayed = false;
+              setState(MAIN);
+              
+              Serial.println(F("[Fingerprint FSM] Returned to MAIN screen"));
+            } else {
+              // ===== 1st FAILURE: Allow retry =====
+              Serial.println(F("[Fingerprint FSM] 1st failure - allowing retry"));
+              delay(2000);
+              isDisplayed = false;
+              // Stay on USER PASS/BIO screen for retry
+            }
+          }
+        } else if (fingerprintID == SystemConfig::MAX_NUM_OF_USERS + 2) {
+          // ===== FINGERPRINT NOT FOUND IN DATABASE (when waiting for user) =====
+          Serial.println(F("[Fingerprint FSM] Fingerprint not found in database (user attempt)"));
+          
+          lcd->clear();
+          lcd->setCursor(0, 0);
+          lcd->print(F("USER FINGERPRNT"));
+          lcd->setCursor(0, 1);
+          lcd->print(F("NOT MATCHED!"));
+          isDisplayed = true;
+          
+          // Increment failure count by 2 for fingerprint failures
+          userBioAuthFailCount += 2;
+          Serial.print(F("[Fingerprint FSM] Failure count: "));
+          Serial.println(userBioAuthFailCount);
+          
+          if (userBioAuthFailCount >= 2) {
+            // ===== 2nd FAILURE: Send alert and reset =====
+            Serial.println(F("[Fingerprint FSM] 2nd failure - sending alert and resetting"));
+            
+            if (gsm != nullptr) {
+              gsm->addToQueue(SystemConfig::AUTH_FAIL_MSG, SystemConfig::MASTER_USER_ID);
+            }
+            
+            // Reset to MAIN screen
+            firstUserVerified = 0;
+            userBioAuthFailCount = 0;
+            delay(2000);
+            isDisplayed = false;
+            setState(MAIN);
+            
+            Serial.println(F("[Fingerprint FSM] Returned to MAIN screen"));
+          } else {
+            // ===== 1st FAILURE: Allow retry =====
+            Serial.println(F("[Fingerprint FSM] 1st failure - allowing retry"));
+            delay(2000);
+            isDisplayed = false;
+            // Stay on USER PASS/BIO screen for retry
+          }
+        }
+      }
+    }
   }
+  // ===== END FINGERPRINT FSM IMPLEMENTATION =====
   
   // Match original structure: if (!is_displayed) { ... } else { if (is_new_key) { ... } }
   if (!isDisplayed) {
