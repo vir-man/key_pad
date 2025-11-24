@@ -1995,6 +1995,11 @@ void temp_task()
         vibration_started = 0;
         trigger_alarm(b_vibration_alarm_triggered, vibration_change_counter);
         print_temp_msg_P(TEMP_STR_VIB_ALARM);
+        // Activate gun point automation if idle
+          if (gpa_state == GPA_DO_NOTHING)
+          {
+            gpa_state = GPA_SEND_MESSAGE;
+          }
       }
     }
   }
