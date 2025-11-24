@@ -963,6 +963,49 @@ void update_data_from_eeprom()
   read_holidays_from_eeprom();
 }
 
+// Print all holidays stored in EEPROM
+void print_holidays()
+{
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  DBG_L2_PRINTLN(F(""));
+  DBG_L2_PRINTLN(F("========== HOLIDAYS =========="));
+  DBG_L2(F("Total Holidays: "));
+  DBG_L2_PRINTLN(count);
+  
+  if (count == 0)
+  {
+    DBG_L2_PRINTLN(F("No holidays configured"));
+  }
+  else
+  {
+    DBG_L2_PRINTLN(F(""));
+    DBG_L2_PRINTLN(F("Date    Month   Year"));
+    DBG_L2_PRINTLN(F("-------------------"));
+    
+    for (uint8_t i = 0; i < count && i < MAX_HOLIDAYS; i++)
+    {
+      size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+      uint8_t h_date = EEPROM.read(addr);
+      uint8_t h_month = EEPROM.read(addr + 1);
+      uint8_t h_year = EEPROM.read(addr + 2);
+      
+      // Format: DD/MM/YY
+      if (h_date < 10) DBG_L2(F("0"));
+      DBG_L2(h_date);
+      DBG_L2(F("/"));
+      if (h_month < 10) DBG_L2(F("0"));
+      DBG_L2(h_month);
+      DBG_L2(F("/"));
+      if (h_year < 10) DBG_L2(F("0"));
+      DBG_L2_PRINTLN(h_year);
+    }
+  }
+  DBG_L2_PRINTLN(F("=============================="));
+  DBG_L2_PRINTLN(F(""));
+}
+
 bool update_eeprom_data_at_index(uint8_t index, char *mobile_number_to_add, char *password_to_add, uint8_t len)
 {
   if (len > 0)
@@ -6979,6 +7022,10 @@ void setup()
   // write_door_open_count_to_eeprom(10);
   // write_door_open_count_to_eeprom(15);
   DBG_L2_PRINTLN(F("EEPROM Write Complete"));
+  
+  // Print holidays at startup
+  read_holidays_from_eeprom();
+  print_holidays();
   init_dc_motor();
   gsm_module_init();
   init_flash_drive();
