@@ -1984,10 +1984,10 @@ void temp_task()
       
       vibration_change_counter++;
       
-      #ifdef DEBUG
+      //#ifdef DEBUG
       Serial.print(F("Vibration_counter -->> "));
       Serial.println(vibration_change_counter);
-      #endif
+      //#endif
       
       // Trigger alarm after 15 vibrations
       if (vibration_change_counter > 15)
