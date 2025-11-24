@@ -3968,10 +3968,10 @@ void finger_print_sensor_init()
   else
   {
     DBG_L1_PRINTLN(F("Did not find fingerprint sensor :("));
-    while (1)
-    {
-      delay(1);
-    }
+    // while (1)
+    // {
+    //   delay(1);
+    // }
   }
 
   DBG_L3_PRINTLN(F("Reading sensor parameters"));
