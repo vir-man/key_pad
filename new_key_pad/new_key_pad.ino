@@ -6967,7 +6967,7 @@ void lcd_power_off()
 void setup()
 {
 
-  Serial.begin(9600);
+  Serial.begin(115200);
   SIM7600.begin(115200); // Setting the baud rate of GSM Module
   finger_print_sensor_init();
   wdt_disable();
