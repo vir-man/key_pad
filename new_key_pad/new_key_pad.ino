@@ -6566,7 +6566,7 @@ void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
   char mbn[12];  // 10 digits + null terminator
   SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  delay(1000);                   // Delay of 1000 milli seconds or 1 second
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
@@ -6575,7 +6575,7 @@ void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.print(mbn);
   SIM7600.println("\"\r"); // Replace x with mobile number
 
-  delay(100);
+  delay(1000);
   SIM7600.print("The BMS System Door Has Sensed High Vibration.\n");
   SIM7600.print("OTP to Deactivate the sensor for your system is: ");
   SIM7600.print(generated_otp[0]);
@@ -6587,7 +6587,7 @@ void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
 
   delay(100);
   SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(100);
+  delay(1000);
   DBG_L2_PRINTLN(F("Vib Alarm Message Sent!!"));
   // ReceiveMessage();
 }
@@ -6595,7 +6595,7 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
   char mbn[12];  // 10 digits + null terminator
   SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  delay(1000);                   // Delay of 1000 milli seconds or 1 second
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
@@ -6604,7 +6604,7 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.print(mbn);
   SIM7600.println("\"\r"); // Replace x with mobile number
 
-  delay(100);
+  delay(1000);
   SIM7600.print("The BMS System Door Has Sensed High Temperature.\n");
   SIM7600.print("OTP to Deactivate the sensor for your system is: ");
   SIM7600.print(generated_otp[0]);
@@ -6616,7 +6616,7 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
 
   delay(100);
   SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(100);
+  delay(1000);
   DBG_L2_PRINTLN(F("Temp Alarm Message Sent!!"));
   // ReceiveMessage();
 }
@@ -6624,7 +6624,7 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
 {
   char mbn[12];  // 10 digits + null terminator
   SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  delay(1000);                   // Delay of 1000 milli seconds or 1 second
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
@@ -6633,7 +6633,7 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.print(mbn);
   SIM7600.println("\"\r"); // Replace x with mobile number
 
-  delay(100);
+  delay(1000);
   // SIM7600.print("The BMS System Door Has Been Forced Open.\n");
   SIM7600.print("Duress Alert Is Activated in BMS System.\n");
   SIM7600.print("OTP to Deactivate the sensor for your system is: ");
@@ -6646,7 +6646,7 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.println(generated_otp[5]);
   delay(100);
   SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(100);
+  delay(1000);
   DBG_L2_PRINTLN(F("Gun Point Message Sent!!"));
   // ReceiveMessage();
 }
@@ -6661,7 +6661,7 @@ void MakeCallWithNumber(uint8_t mobile_number_index)
   SIM7600.print(mbn);
   SIM7600.println(";"); // ATDxxxxxxxxxx; -- watch out here for semicolon at the end!!
   DEBUG_PRINTLN("Calling  ");            // print response over serial port
-  delay(100);
+  delay(1000);
 }
 void SendMessageAuthFail(uint8_t mobile_number_index)
 {
