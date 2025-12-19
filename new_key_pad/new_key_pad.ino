@@ -1671,6 +1671,7 @@ bool b_send_close_door_message = 0;
 #define TEMP_ALARM_MSG 5
 #define VIBRATION_ALARM_MSG 6
 #define AUTH_FAIL_MSG 7
+#define DOOR_TIMEOUT_MSG 8
 
 uint8_t type_list[10];
 uint8_t message_details[10];
@@ -4496,6 +4497,7 @@ void update_queue(uint8_t message_type, uint8_t message)
 }
 
 bool b_sms_sent_for_open = 0;
+bool b_door_timeout_alert_sent = 0;
 unsigned long applicable_buzzer_timeout = buzzer_timeout;
 
 // LCD string constants stored in PROGMEM to save RAM
@@ -4571,6 +4573,7 @@ void display_door_closed(bool is_master) {
   is_displayed = 0;
   b_error_in_door_close = 0;
   b_sms_sent_for_open = 0;
+  b_door_timeout_alert_sent = 0;  // Reset timeout alert flag when door closes
   
   // Queue CLOSE_DOOR messages for users 0 to 4 if configured
   for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
@@ -4665,6 +4668,20 @@ void lcd_task()
       DBG_L4_PRINTLN(current_millis);
       door_open_time = current_millis;
       b_buzzer_on = 1;
+      
+      // Send door timeout alert if not already sent for this timeout period
+      if (!b_door_timeout_alert_sent)
+      {
+        b_door_timeout_alert_sent = 1;
+        // Queue DOOR_TIMEOUT messages for users 0 to 4 if configured
+        for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+        {
+          if (is_password_configured[idx])
+          {
+            update_queue(DOOR_TIMEOUT_MSG, idx);
+          }
+        }
+      }
     }
     if(!is_displayed){
       is_displayed = 1;
@@ -4926,6 +4943,35 @@ void lcd_task()
     break;
     
   case USER_INPUT_STATE:
+    // Check for door timeout if door is open
+    if (is_door_open())
+    {
+      applicable_buzzer_timeout = buzzer_timeout * 60000UL;  // Use UL suffix for unsigned long constant
+      if (current_millis - door_open_time > applicable_buzzer_timeout)
+      {
+        DBG_L4_PRINTLN(applicable_buzzer_timeout);
+        DBG_L3_PRINTLN(F("Buzzer ON"));
+        DBG_L4_PRINTLN(door_open_time);
+        DBG_L4_PRINTLN(current_millis);
+        door_open_time = current_millis;
+        b_buzzer_on = 1;
+        
+        // Send door timeout alert if not already sent for this timeout period
+        if (!b_door_timeout_alert_sent)
+        {
+          b_door_timeout_alert_sent = 1;
+          // Queue DOOR_TIMEOUT messages for users 0 to 4 if configured
+          for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+          {
+            if (is_password_configured[idx])
+            {
+              update_queue(DOOR_TIMEOUT_MSG, idx);
+            }
+          }
+        }
+      }
+    }
+    
     if (!is_displayed)
     {
       is_displayed = 1;
@@ -5192,6 +5238,16 @@ void gsm_housekeeping_task()
       }
       break;
       
+    case DOOR_TIMEOUT_MSG:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        DBG_L4_PRINTLN(current_msg_detail);
+        // Send door timeout alert message for this queue entry only
+        SendMessageDoorTimeout(current_msg_detail);
+        queue_index--;
+      }
+      break;
+      
     default:
       queue_index--;
       break;
@@ -5301,7 +5357,7 @@ uint16_t read_serial_to_buffer(Stream &stream, char *buffer, uint16_t max_len)
 
 void gsm_module_task()
 {
-  if (Serial.available() > 0)
+  while (Serial.available() > 0)
   {
     // Use buffered reading to capture complete messages
     uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
@@ -5339,7 +5395,7 @@ void gsm_module_task()
        break;
      }
      */
-  if (SIM7600.available() > 0)
+  while (SIM7600.available() > 0)
   {
     uint16_t len = read_serial_to_buffer(SIM7600, serial_buffer, sizeof(serial_buffer));
     if (len > 0)
@@ -6717,6 +6773,36 @@ void SendMessageAuthFail(uint8_t mobile_number_index)
   SIM7600.println((char)26); // ASCII code of CTRL+Z
   delay(100);
   DBG_L2_PRINTLN(F("Auth Fail Message Sent!!"));
+  // ReceiveMessage();
+}
+
+void SendMessageDoorTimeout(uint8_t mobile_number_index)
+{
+  char mbn[12];  // 10 digits + null terminator
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(100);
+  SIM7600.print("Door Timeout Alert!\n");
+  SIM7600.print("The BMS System Door has been open for more than the permitted timeout.\n");
+  SIM7600.print("Timeout Duration: ");
+  SIM7600.print(buzzer_timeout);
+  SIM7600.print(" minutes\n");
+  SIM7600.print("Date: ");
+  print_date_time_to_gsm();
+  SIM7600.println();
+
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(100);
+  DBG_L2_PRINTLN(F("Door Timeout Alert Message Sent!!"));
   // ReceiveMessage();
 }
 
