@@ -6581,9 +6581,9 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
   }
   SIM7600.print(" By User-");
   SIM7600.print(id);
-  SIM7600.print(" (");
-  SIM7600.print(temp);
-  SIM7600.print(")");
+  // SIM7600.print(" (");
+  // SIM7600.print(temp);
+  // SIM7600.print(")");
   SIM7600.print("\nAt ");
   print_date_time_to_gsm();
   SIM7600.println();
