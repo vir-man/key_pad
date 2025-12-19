@@ -4539,13 +4539,16 @@ void display_door_opened(bool is_master) {
   
   if (!b_sms_sent_for_open) {
     b_sms_sent_for_open = 1;
-    if (is_master) {
-      update_queue(OPEN_DOOR_MSG, user_id);
-      update_log_entry(door_open_count, user_id, OPEN);
-    } else {
-      update_queue(OPEN_DOOR_MSG, MASTER_USER_ID + 1);
-      update_queue(OPEN_DOOR_MSG, user_id);
+    // Queue OPEN_DOOR messages for users 0 to 4 if configured
+    for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+    {
+      if (is_password_configured[idx])
+      {
+        // message_details will carry recipient index (idx)
+        update_queue(OPEN_DOOR_MSG, idx);
+      }
     }
+    update_log_entry(door_open_count, user_id, OPEN);
   }
   display_screen = is_master ? MASTER_INPUT_STATE : USER_INPUT_STATE;
 }
@@ -4569,14 +4572,14 @@ void display_door_closed(bool is_master) {
   b_error_in_door_close = 0;
   b_sms_sent_for_open = 0;
   
-  if (is_master) {
-    if (user_id != 1) {
-      update_queue(CLOSE_DOOR_MSG, MASTER_USER_ID + 1);
+  // Queue CLOSE_DOOR messages for users 0 to 4 if configured
+  for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+  {
+    if (is_password_configured[idx])
+    {
+      update_queue(CLOSE_DOOR_MSG, idx);
     }
-  } else {
-    update_queue(CLOSE_DOOR_MSG, MASTER_USER_ID + 1);
   }
-  update_queue(CLOSE_DOOR_MSG, user_id);
   update_log_entry(door_open_count, user_id, CLOSE);
   delay(3000);
   lcd_power_off();
@@ -5078,8 +5081,9 @@ inline uint8_t get_door_msg_recipient(uint8_t msg_detail) {
 
 // Helper function to send door status with optimized recipient logic
 inline void send_door_status_optimized(uint8_t msg_detail, bool is_open) {
-  uint8_t recipient = get_door_msg_recipient(msg_detail);
-  SendMessageDoorStatus(recipient, msg_detail, is_open ? 1 : 0);
+  // msg_detail now holds the recipient index directly (0-based user index)
+  // Use global user_id as the actor ID in the message
+  SendMessageDoorStatus(msg_detail, user_id, is_open ? 1 : 0);
 }
 
 // Helper function to check timeout and send message
