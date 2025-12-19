@@ -6678,7 +6678,7 @@ void SendMessageAuthFail(uint8_t mobile_number_index)
 
   delay(100);
   SIM7600.print("Authentication Failed!\n");
-  SIM7600.print("The BMS System has detected 2 consecutive failed authentication attempts on USER PASS/BIO screen.\n");
+  SIM7600.print("The BMS System has detected unauthorized attempt.\n");
   print_date_time_to_gsm();
   SIM7600.println();
 
