@@ -2426,16 +2426,28 @@ bool verify_dual_password(){
     LCD_PRINT("Invld Password!!");
     is_displayed = 0;
     
-    // Send alert for invalid password attempt
-    update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+    // Send alert for invalid password attempt - queue for users 1 to 5 (indices 0 to 4) if configured
+    for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+    {
+      if (is_password_configured[idx])
+      {
+        update_queue(AUTH_FAIL_MSG, idx);
+      }
+    }
     delay(1000);
     
     // Check if this is a failure on USER PASS/BIO screen
     if (first_user_verified == 1) {
       user_bio_auth_fail_count++;
       if (user_bio_auth_fail_count >= 1) {
-        // Send alert to master user (index 0)
-        update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+        // Send alert to users 1 to 5 (indices 0 to 4) if configured
+        for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+        {
+          if (is_password_configured[idx])
+          {
+            update_queue(AUTH_FAIL_MSG, idx);
+          }
+        }
         user_bio_auth_fail_count = 0; // Reset after sending alert
         // Return to MAIN screen after 2nd failure
         display_screen = MAIN;
@@ -2730,8 +2742,14 @@ void fingerprint_manager_fsm(){
       lcd.print("NOT MATCHED!");
       user_id = 0; // Invalid user ID
       
-      // Send alert for invalid master fingerprint attempt
-      update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+      // Send alert for invalid master fingerprint attempt - queue for users 1 to 5 (indices 0 to 4) if configured
+      for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+      {
+        if (is_password_configured[idx])
+        {
+          update_queue(AUTH_FAIL_MSG, idx);
+        }
+      }
       
       fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
       delay(2000);
@@ -2787,8 +2805,14 @@ void fingerprint_manager_fsm(){
       // Track failure and send alert if needed
       // user_bio_auth_fail_count++;
       if (user_bio_auth_fail_count >= 2) {
-        // Send alert to master user (index 0)
-        update_queue(AUTH_FAIL_MSG, MASTER_USER_ID);
+        // Send alert to users 1 to 5 (indices 0 to 4) if configured
+        for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+        {
+          if (is_password_configured[idx])
+          {
+            update_queue(AUTH_FAIL_MSG, idx);
+          }
+        }
         user_bio_auth_fail_count = 0; // Reset after sending alert
         // Return to MAIN screen after 2nd failure
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
@@ -5102,11 +5126,13 @@ void gsm_housekeeping_task()
       DBG_L4_PRINTLN(current_msg_detail - 1);
       #endif
       
+      // Original behaviour: send one door-open message based on queue entry
       send_door_status_optimized(current_msg_detail, true);
       queue_index--;
       break;
       
     case CLOSE_DOOR_MSG:
+      // Original behaviour: send one door-close message based on queue entry
       send_door_status_optimized(current_msg_detail, false);
       queue_index--;
       break;
@@ -5156,6 +5182,7 @@ void gsm_housekeeping_task()
       {
         print_status_P(GSM_MSG_AUTH_FAIL);
         DBG_L4_PRINTLN(current_msg_detail);
+        // Send auth fail message for this queue entry only
         SendMessageAuthFail(current_msg_detail);
         queue_index--;
       }
