@@ -2078,8 +2078,8 @@ void temp_task()
       vibration_change_counter++;
       
       //#ifdef DEBUG
-      DBG_L3(F("Vibration_counter -->> "));
-      DBG_L3_PRINTLN(vibration_change_counter);
+      Serial.print(F("Vibration_counter -->> "));
+      Serial.println(vibration_change_counter);
       //#endif
       
       // Trigger alarm after 15 vibrations
