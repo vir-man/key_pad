@@ -7,6 +7,13 @@
 #include <avr/wdt.h>
 #include <avr/pgmspace.h>
 #include <Adafruit_Fingerprint.h>
+#include "config.h"
+#include "logger.h"
+#include "buzzer_module.h"
+#include "rtc_module.h"
+#include "door_module.h"
+#include "sensor_module.h"
+
 #include <SD.h>
 #include "pitches.h"
 #include "uRTCLib.h"
@@ -106,14 +113,12 @@ uint16_t alpha_counter = 0;
 /***** Buzzer Vars [START] *****/
 
 // notes in the melody (store in flash to save SRAM)
-const uint16_t melody[] PROGMEM = {
-    NOTE_C4, NOTE_G3, NOTE_G3, NOTE_A3, NOTE_G3, 0, NOTE_B3, NOTE_C4};
+
 
 // note durations: 4 = quarter note, 8 = eighth note, etc.:
 // Moved to PROGMEM to save 16 bytes RAM
-const int noteDurations[] PROGMEM = {
-    4, 8, 8, 4, 4, 4, 4, 4};
-const int buzzer_pin = 45;
+const 
+
 bool b_buzzer_on = 0;
 unsigned long buzzer_timer = millis();
 bool b_sub_buzzer_on = 0;

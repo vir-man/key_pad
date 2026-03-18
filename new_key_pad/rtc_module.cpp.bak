@@ -1,0 +1,212 @@
+#include "rtc_module.h"
+#include "logger.h"
+#include <EEPROM.h>
+
+// Global time variables
+uint8_t second, minute, hour, day_of_week, date, month, year;
+unsigned long rtc_timer = 0;
+#define RTC_UPDATE_INTERVAL_MS 60000UL  // 1 minute interval for time printing
+
+uRTCLib rtc(0x68);
+
+// Holiday global variables
+uint8_t holiday_count = 0;
+size_t holiday_count_start_address;
+size_t holiday_data_start_address;
+
+// Day names in PROGMEM
+const char DAY_NAMES_COMPACT[] PROGMEM = "(Incorrect Day)\0Sunday\0Monday\0Tuesday\0Wednesday\0Thursday\0Friday\0Saturday";
+const uint8_t DAY_OFFSETS[] PROGMEM = {
+  0,   // Invalid: "(Incorrect Day)"
+  16,  // Sunday
+  23,  // Monday
+  30,  // Tuesday
+  38,  // Wednesday
+  48,  // Thursday
+  57,  // Friday
+  64   // Saturday
+};
+
+const char* DayAsString_P(uint8_t day) {
+  if (day > 7) day = 0; // Invalid day
+  uint8_t offset = pgm_read_byte(&DAY_OFFSETS[day]);
+  return &DAY_NAMES_COMPACT[offset];
+}
+
+void printDayName(uint8_t day) {
+  static char buffer[12]; // Static = allocated once, not per call
+  strcpy_P(buffer, DayAsString_P(day));
+  LOG_INFO(MOD_RTC, buffer);
+}
+
+void update_rtc_timer() {
+  rtc_timer = millis();
+}
+
+void rtc_begin() {
+  Wire.begin();
+  update_date_time_from_rtc();
+  update_rtc_timer();
+}
+
+void set_rtc() {
+  rtc.set(second, minute, hour, 1, date, month, year);
+}
+
+bool validate_date_and_time(uint8_t _second, uint8_t _minute, uint8_t _hour,
+                            uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  if (_second >= 60) return false;
+  if (_minute >= 60) return false;
+  if (_hour >= 24) return false;
+  if (_date == 0 || _date > 31) return false;
+  if (_month == 0 || _month > 12) return false;
+  if (_year >= 100) return false;
+  
+  second = _second;
+  minute = _minute;
+  hour = _hour;
+  date = _date;
+  month = _month;
+  year = _year;
+  set_rtc();
+  update_date_time_from_rtc();
+  return true;
+}
+
+void update_date_time_from_rtc() {
+  rtc.refresh();
+  
+  month = rtc.month();
+  date = rtc.day();
+  year = rtc.year();
+  hour = rtc.hour();
+  minute = rtc.minute();
+  second = rtc.second();
+  day_of_week = rtc.dayOfWeek();
+
+  // Logging time every update
+  char timeStr[40];
+  sprintf(timeStr, "%02d/%02d/%02d Time: %02d:%02d:%02d", month, date, year, hour, minute, second);
+  LOG_INFO(MOD_RTC, timeStr);
+  printDayName(day_of_week);
+}
+
+void rtc_task() {
+  unsigned long current_millis = millis();
+  if (current_millis - rtc_timer > RTC_UPDATE_INTERVAL_MS) {
+    update_date_time_from_rtc();
+    rtc_timer = current_millis;
+  }
+}
+
+// Holiday EEPROM functions
+void write_holiday_to_eeprom(uint8_t index, uint8_t _date, uint8_t _month, uint8_t _year) {
+  size_t addr = holiday_data_start_address + (index * HOLIDAY_DATA_SIZE);
+  EEPROM.write(addr, _date);
+  EEPROM.write(addr + 1, _month);
+  EEPROM.write(addr + 2, _year);
+}
+
+void write_holidays_to_eeprom() {
+  EEPROM.write(holiday_count_start_address, holiday_count);
+}
+
+void read_holidays_from_eeprom() {
+  holiday_count = EEPROM.read(holiday_count_start_address);
+  if (holiday_count > MAX_HOLIDAYS) {
+    holiday_count = 0;
+    write_holidays_to_eeprom();
+  }
+}
+
+bool is_holiday(uint8_t _date, uint8_t _month, uint8_t _year) {
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  for (uint8_t i = 0; i < count && i < MAX_HOLIDAYS; i++) {
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    uint8_t h_date = EEPROM.read(addr);
+    uint8_t h_month = EEPROM.read(addr + 1);
+    uint8_t h_year = EEPROM.read(addr + 2);
+    
+    if (h_date == _date && h_month == _month && h_year == _year) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool add_holiday(uint8_t _date, uint8_t _month, uint8_t _year) {
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  if (count >= MAX_HOLIDAYS) return false; 
+  if (is_holiday(_date, _month, _year)) return false; 
+  if (_date == 0 || _date > 31 || _month == 0 || _month > 12 || _year > 99) return false; 
+  
+  write_holiday_to_eeprom(count, _date, _month, _year);
+  count++;
+  holiday_count = count;
+  write_holidays_to_eeprom(); 
+  return true;
+}
+
+bool remove_holiday(uint8_t _date, uint8_t _month, uint8_t _year) {
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  for (uint8_t i = 0; i < count; i++) {
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    uint8_t h_date = EEPROM.read(addr);
+    uint8_t h_month = EEPROM.read(addr + 1);
+    uint8_t h_year = EEPROM.read(addr + 2);
+    
+    if (h_date == _date && h_month == _month && h_year == _year) {
+      for (uint8_t j = i; j < count - 1; j++) {
+        size_t src_addr = holiday_data_start_address + ((j + 1) * HOLIDAY_DATA_SIZE);
+        size_t dst_addr = holiday_data_start_address + (j * HOLIDAY_DATA_SIZE);
+        EEPROM.write(dst_addr, EEPROM.read(src_addr));
+        EEPROM.write(dst_addr + 1, EEPROM.read(src_addr + 1));
+        EEPROM.write(dst_addr + 2, EEPROM.read(src_addr + 2));
+      }
+      count--;
+      holiday_count = count;
+      write_holidays_to_eeprom();
+      return true;
+    }
+  }
+  return false;
+}
+
+void print_holidays() {
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  LOG_INFO(MOD_RTC, "");
+  LOG_INFO(MOD_RTC, "========== HOLIDAYS ==========");
+  LOG_INFO(MOD_RTC, "Total Holidays: ");
+  // LOG_INFO doesn't support numbers natively yet, print it normally or format:
+  char buf[20];
+  sprintf(buf, "Count: %d", count);
+  LOG_INFO(MOD_RTC, buf);
+  
+  if (count == 0) {
+    LOG_INFO(MOD_RTC, "No holidays configured");
+  } else {
+    LOG_INFO(MOD_RTC, "");
+    LOG_INFO(MOD_RTC, "Date    Month   Year");
+    LOG_INFO(MOD_RTC, "-------------------");
+    
+    for (uint8_t i = 0; i < count && i < MAX_HOLIDAYS; i++) {
+      size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+      uint8_t h_date = EEPROM.read(addr);
+      uint8_t h_month = EEPROM.read(addr + 1);
+      uint8_t h_year = EEPROM.read(addr + 2);
+      
+      sprintf(buf, "%02d/%02d/%02d", h_date, h_month, h_year);
+      LOG_INFO(MOD_RTC, buf);
+    }
+  }
+  LOG_INFO(MOD_RTC, "==============================");
+  LOG_INFO(MOD_RTC, "");
+}

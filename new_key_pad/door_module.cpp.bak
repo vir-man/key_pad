@@ -1,0 +1,163 @@
+#include "door_module.h"
+#include "logger.h"
+
+// External state references
+extern bool is_displayed;
+
+int dc_motor_pin[2] = {2, 5};
+int sensor_pin[2] = {48, 47};
+int em_lock_control_pin = 6;
+int ir_rx_pin = A0;
+
+#define CW 0
+#define CCW 1
+
+bool is_door_closing = 0;
+bool is_door_opening = 0;
+
+bool door_sensor_state[2] = {0, 0};
+bool prev_door_sensor_state[2] = {0, 0};
+
+bool ir_state = 0;
+bool prev_ir_state = 0;
+
+bool b_command_open_door = 0;
+bool b_command_close_door = 0;
+
+bool b_error_in_door_open = 0;
+bool b_error_in_door_close = 0;
+
+extern bool current_ir_value;
+
+bool is_door_aligned_by_ir()
+{
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+ return 1;
+#else
+  return !current_ir_value;
+#endif
+}
+
+void init_dc_motor()
+{
+  pinMode(dc_motor_pin[0], OUTPUT);
+  pinMode(dc_motor_pin[1], OUTPUT);
+  pinMode(sensor_pin[0], INPUT_PULLUP);
+  pinMode(sensor_pin[1], INPUT_PULLUP);
+  pinMode(ir_rx_pin, INPUT);
+
+  dc_motor_stop();
+}
+
+void dc_motor_stop()
+{
+   digitalWrite(dc_motor_pin[0], 1);
+   digitalWrite(dc_motor_pin[1], 1);
+}
+
+void dc_motor_on(int direction)
+{
+  if (direction == CW)
+  {
+     LOG_DEBUG(MOD_DOOR, "Moving CW");
+     digitalWrite(dc_motor_pin[0], 0);
+     digitalWrite(dc_motor_pin[1], 1);
+  }
+  else if (direction == CCW)
+  {
+     LOG_DEBUG(MOD_DOOR, "Moving CCW");
+     digitalWrite(dc_motor_pin[0], 1);
+     digitalWrite(dc_motor_pin[1], 0);
+  }
+}
+
+bool is_door_open()
+{
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+  return 1;
+#else
+  return !door_sensor_state[0];
+#endif
+}
+
+bool is_door_close()
+{
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+  return 1;
+#else
+  return !door_sensor_state[1];
+#endif
+}
+
+void open_door()
+{
+  is_door_opening = 1;
+  dc_motor_on(CW);
+}
+
+void close_door()
+{
+  is_door_closing = 1;
+  dc_motor_on(CCW);
+}
+
+inline void stop_door_motor_and_clear_error(bool &is_moving, bool &error_flag)
+{
+  dc_motor_stop();
+  is_moving = 0;
+  if (error_flag)
+  {
+    error_flag = 0;
+    is_displayed = 0;
+  }
+}
+
+void dc_motor_task()
+{
+  ir_state = digitalRead(ir_rx_pin);
+  if (prev_ir_state != ir_state)
+  {
+    prev_ir_state = ir_state;
+  }
+
+  for (uint8_t i = 0; i < 2; i++)
+  {
+    bool current_sensor_state = digitalRead(sensor_pin[i]);
+    
+    if (current_sensor_state != prev_door_sensor_state[i])
+    {
+      prev_door_sensor_state[i] = current_sensor_state;
+      door_sensor_state[i] = current_sensor_state;
+      
+      if (i == 0) {
+        LOG_DEBUG(MOD_DOOR, is_door_open() ? "DOOR OPEN" : "DOOR OPEN SENSOR UNHIT");
+      } else {
+        LOG_DEBUG(MOD_DOOR, is_door_close() ? "DOOR CLOSE" : "DOOR CLOSE SENSOR UNHIT");
+      }
+    }
+  }
+  
+  if (is_door_opening && is_door_open())
+  {
+    stop_door_motor_and_clear_error(is_door_opening, b_error_in_door_open);
+  }
+  
+  if (is_door_closing && is_door_close())
+  {
+    stop_door_motor_and_clear_error(is_door_closing, b_error_in_door_close);
+  }
+  
+  if (b_command_close_door && is_door_aligned_by_ir())
+  {
+    b_command_close_door = 0;
+    dc_motor_stop();
+    close_door();
+  }
+  
+  if (b_command_open_door)
+  {
+    b_command_open_door = 0;
+    dc_motor_stop();
+    open_door();
+  }
+}

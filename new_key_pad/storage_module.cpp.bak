@@ -1,0 +1,646 @@
+#include "storage_module.h"
+#include "logger.h"
+#include "rtc_module.h"
+
+// External references
+extern Ch376msc flashDrive;
+
+/***** SD CARD VARIABLES *****/
+Sd2Card card;
+SdVolume volume;
+SdFile root;
+const int chipSelect = 53;
+bool b_sd_card_not_initiated = 0;
+
+/***** FLASH DRIVE VARIABLES *****/
+bool b_backup_in_progress = 0;
+bool b_backup_complete = 0;
+bool b_flash_drive_attached = 0;
+
+const char file_start_str[] PROGMEM = "SR.    USER      DATE         TIME      REMARKS\n---------------------------------------------\n";
+extern void SERIAL_PRINTLN(const char*);
+extern void SERIAL_PRINT(const char*);
+
+/***** EEPROM VARIABLES *****/
+#define EEPROM_STARTING_ADDRESS 0
+#define IS_CONFIGURED_BYTE_ADDRESS_COUNT 1
+#define PASSWORD_LEN_COUNT 1
+#define IN_OUT_TIME_LEN_COUNT 2
+
+#define ALPHA_SPEED_LEN_COUNT 4
+#define BUZZER_TIMEOUT_LEN_COUNT 4
+#define DOOR_OPEN_COUND_LEN_COUNT 4
+
+#define USER_BLOCK_SIZE (1 + MOBILE_NUMBER_LENGTH + 1 + 1 + PASSWORD_STORE_COUNT + 1 + IN_OUT_TIME_LEN_COUNT + IN_OUT_TIME_LEN_COUNT + 1)
+
+static inline uint16_t eeprom_addr_user_base(uint8_t index) { return (uint16_t)(EEPROM_STARTING_ADDRESS + (uint16_t)index * (uint16_t)USER_BLOCK_SIZE); }
+static inline uint16_t eeprom_addr_is_pw(uint8_t index) { return eeprom_addr_user_base(index) + 0; }
+static inline uint16_t eeprom_addr_mobile(uint8_t index) { return eeprom_addr_is_pw(index) + 1; }
+static inline uint16_t eeprom_addr_pw_len(uint8_t index) { return eeprom_addr_mobile(index) + MOBILE_NUMBER_LENGTH + 1; }
+static inline uint16_t eeprom_addr_pw(uint8_t index) { return eeprom_addr_pw_len(index) + 1; }
+static inline uint16_t eeprom_addr_is_inout(uint8_t index) { return eeprom_addr_pw(index) + PASSWORD_STORE_COUNT + 1; }
+static inline uint16_t eeprom_addr_in_time(uint8_t index) { return eeprom_addr_is_inout(index) + 1; }
+static inline uint16_t eeprom_addr_out_time(uint8_t index) { return eeprom_addr_in_time(index) + IN_OUT_TIME_LEN_COUNT; }
+static inline uint16_t eeprom_addr_after_users(void) { return eeprom_addr_out_time(MAX_NUM_OF_USERS - 1) + IN_OUT_TIME_LEN_COUNT + 1; }
+
+size_t alpha_speed_start_address;
+size_t door_open_count_start_address;
+size_t buzzer_timeout_start_address;
+
+bool is_password_configured[MAX_NUM_OF_USERS] = {0};
+char mobile_number[MAX_NUM_OF_USERS][MOBILE_NUMBER_LENGTH];
+uint8_t password_length[MAX_NUM_OF_USERS] = {0};
+char password_value[MAX_NUM_OF_USERS][PASSWORD_STORE_COUNT];
+
+bool is_in_out_time_configured[MAX_NUM_OF_USERS] = {0};
+uint8_t in_time_hour[MAX_NUM_OF_USERS] = {0};
+uint8_t in_time_minute[MAX_NUM_OF_USERS] = {0};
+uint8_t out_time_hour[MAX_NUM_OF_USERS] = {0};
+uint8_t out_time_minute[MAX_NUM_OF_USERS] = {0};
+
+uint16_t alpha_speed;
+uint16_t buzzer_timeout;
+uint16_t door_open_count;
+
+char _mobile_number[10] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0'};
+char _password[15] = {'1', '2', '3', '4', '5', '6', '7', '8', '9', '3', '1', '2', 'Z', '\0', '\0'};
+char _password1[15];
+
+HardwareSerial *port;
+
+/******************************************
+ * SD CARD FUNCTIONS
+ ******************************************/
+
+void sd_init()
+{
+  LOG_INFO(MOD_MAIN, "Initializing SD card...");
+  if (!SD.begin(chipSelect))
+  {
+    LOG_ERROR(MOD_MAIN, "Card failed, or not present");
+    b_sd_card_not_initiated = 1;
+  }
+  else
+  {
+    LOG_INFO(MOD_MAIN, "card initialized.");
+  }
+}
+
+#define TAB_STRING "     "
+#define CLOSE 0
+#define OPEN 1
+
+void update_log_entry(uint16_t sr_no, uint8_t _user_id, bool dir)
+{
+  char dataString[60];
+  int pos = 0;
+  
+  if (sr_no < 10)
+  {
+    dataString[pos++] = '0';
+    dataString[pos++] = '0';
+    pos += sprintf(&dataString[pos], "%d", sr_no);
+  }
+  else if (sr_no < 100)
+  {
+    dataString[pos++] = '0';
+    pos += sprintf(&dataString[pos], "%d", sr_no);
+  }
+  else
+  {
+    pos += sprintf(&dataString[pos], "%d", sr_no);
+  }
+  
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", _user_id);
+  
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  
+  if (date < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d/", date);
+  if (month < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d/", month);
+  if (year < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", year);
+  
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  
+  if (hour < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d:", hour);
+  if (minute < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d:", minute);
+  if (second < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", second);
+  
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  dataString[pos++] = (dir == CLOSE) ? 'C' : 'O';
+  dataString[pos] = '\0';
+
+  File dataFile = SD.open("BMS-LOG1.TXT", FILE_WRITE);
+
+  if (dataFile)
+  {
+    dataFile.println(dataString);
+    dataFile.close();
+    LOG_DEBUG(MOD_MAIN, dataString);
+    LOG_INFO(MOD_MAIN, "BMS-LOG1.TXT Updated!");
+  }
+  else
+  {
+    LOG_ERROR(MOD_MAIN, "error opening BMS-LOG1.TXT");
+  }
+}
+
+/******************************************
+ * FLASH DRIVE FUNCTIONS
+ ******************************************/
+
+void init_flash_drive()
+{
+  flashDrive.init();
+}
+
+void flash_drive_task()
+{
+  if (flashDrive.checkIntMessage())
+  {
+    if (flashDrive.getDeviceStatus())
+    {
+      LOG_INFO(MOD_MAIN, "Flash drive attached!");
+      b_flash_drive_attached = 1;
+    }
+    else
+    {
+      LOG_INFO(MOD_MAIN, "Flash drive detached!");
+      b_flash_drive_attached = 0;
+    }
+  }
+  if (b_backup_in_progress)
+  {
+    copy_data_from_sd_card_to_usb_flash_drive();
+  }
+}
+
+void printInfo(const char info[])
+{
+  int infoLength = strlen(info);
+  if (infoLength > 40)
+  {
+    infoLength = 40;
+  }
+  Serial.print("\n\n");
+  for (int a = 0; a < infoLength; a++)
+  {
+    Serial.print('*');
+  }
+  Serial.println();
+  Serial.println(info);
+  for (int a = 0; a < infoLength; a++)
+  {
+    Serial.print('*');
+  }
+  Serial.print("\n\n");
+}
+
+void copy_data_from_sd_card_to_usb_flash_drive()
+{
+  char input_string_char_array[80];
+  
+  LOG_INFO(MOD_MAIN, "File opened!");
+  File dataFile = SD.open("BMS-LOG1.TXT");
+  flashDrive.setFileName("BMS-LOG1.TXT");
+  flashDrive.openFile();
+  char pgm_buffer[80];
+  strcpy_P(pgm_buffer, file_start_str);
+  flashDrive.writeFile(pgm_buffer, strlen(pgm_buffer));
+  
+  if (dataFile)
+  {
+    while (dataFile.available())
+    {
+      String input_string_from_sd_card = dataFile.readStringUntil('\n');
+      LOG_DEBUG(MOD_MAIN, input_string_from_sd_card.c_str());
+      memset(input_string_char_array, '\0', sizeof(input_string_char_array));
+      input_string_from_sd_card.toCharArray(input_string_char_array, input_string_from_sd_card.length());
+      input_string_char_array[strlen(input_string_char_array)] = '\n';
+      flashDrive.writeFile(input_string_char_array, strlen(input_string_char_array));
+    }
+    flashDrive.closeFile();
+    dataFile.close();
+    
+    LOG_INFO(MOD_MAIN, "Reading recently written file");
+    flashDrive.setFileName("BMS-LOG1.TXT");
+    flashDrive.openFile();
+    bool readMore = true;
+    char char_array[40];
+    while (readMore)
+    {
+      readMore = flashDrive.readFile(char_array, sizeof(char_array));
+      LOG_DEBUG(MOD_MAIN, char_array);
+    }
+    flashDrive.closeFile();
+    printInfo("Done!");
+    b_backup_complete = 1;
+  }
+  else
+  {
+    b_backup_in_progress = 0;
+    LOG_ERROR(MOD_MAIN, "error opening BMS-LOG1.TXT");
+  }
+}
+
+/******************************************
+ * EEPROM FUNCTIONS
+ ******************************************/
+
+void set_eeprom_addresses()
+{
+  alpha_speed_start_address = eeprom_addr_after_users();
+  door_open_count_start_address = alpha_speed_start_address + ALPHA_SPEED_LEN_COUNT;
+  buzzer_timeout_start_address = door_open_count_start_address + BUZZER_TIMEOUT_LEN_COUNT;
+  
+  // Note: holiday_count_start_address is managed by rtc_module via extern in rtc_module.h
+  holiday_count_start_address = buzzer_timeout_start_address + BUZZER_TIMEOUT_LEN_COUNT;
+  holiday_data_start_address = holiday_count_start_address + 1; // 1 byte for count
+}
+
+void init_eeprom()
+{
+  set_eeprom_addresses();
+  LOG_INFO(MOD_MAIN, "Address assigned");
+  update_data_from_eeprom();
+}
+
+void clear_eeprom()
+{
+  for (int i = 0; i < EEPROM.length(); i++)
+  {
+    EEPROM.write(i, 0);
+  }
+  LOG_INFO(MOD_MAIN, "EEPROM Cleared!");
+}
+
+void clear_eeprom_data()
+{
+  clearEepromArray(EEPROM_STARTING_ADDRESS, eeprom_addr_after_users());
+}
+
+void print_eeprom_data(HardwareSerial *serial1)
+{
+  serial1->print("\n|CONFIGURED?|MOBILE NUMBER|PW LENGTH|PASSWORD|IS_INOUT_CONFIG|IN_TIME|OUT_TIME\n");
+  for (uint8_t j = 0; j < MAX_NUM_OF_USERS; j++)
+  {
+    if (!is_password_configured[j])
+    {
+      serial1->print("|NO|NA|NA|NA|NA|NA|NA\n");
+    }
+    else
+    {
+      serial1->print("|YES|");
+      for (uint8_t i = 0; i < 10; i++)
+      {
+        serial1->print(mobile_number[j][i]);
+      }
+      serial1->print("|");
+      serial1->print(password_length[j]);
+      serial1->print("|");
+      for (uint8_t i = 0; i < password_length[j]; i++)
+      {
+        serial1->print(password_value[j][i]);
+      }
+      if (!is_in_out_time_configured[j])
+      {
+        serial1->print("|NO|NA|NA|\n");
+      }
+      else
+      {
+        serial1->print("|YES|");
+        serial1->print(in_time_hour[j]);
+        serial1->print(":");
+        serial1->print(in_time_minute[j]);
+        serial1->print("|");
+        serial1->print(out_time_hour[j]);
+        serial1->print(":");
+        serial1->print(out_time_minute[j]);
+        serial1->print("|\n");
+      }
+    }
+  }
+  serial1->print("Alpha Speed :");
+  serial1->print(alpha_speed);
+  serial1->print(" | Door Open Count :");
+  serial1->print(door_open_count);
+  serial1->print(" | Buzzer Timeout :");
+  serial1->println(buzzer_timeout);
+}
+
+void update_data_from_eeprom()
+{
+  for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+  {
+    update_password_from_eeprom(i);
+  }
+  read_alpha_speed_to_eeprom();
+  read_buzzer_timeout_to_eeprom();
+  read_door_open_count_to_eeprom();
+  read_holidays_from_eeprom(); // From rtc_module
+}
+
+bool update_eeprom_data_at_index(uint8_t index, char *mobile_number_to_add, char *password_to_add, uint8_t len)
+{
+  if (len > 0)
+  {
+    password_length[index] = len;
+    for (uint8_t i = 0; i < MOBILE_NUMBER_LENGTH; i++)
+    {
+      mobile_number[index][i] = mobile_number_to_add[i];
+    }
+    for (uint8_t j = 0; j < len; j++)
+    {
+      password_value[index][j] = password_to_add[j];
+    }
+    if (update_password_to_eeprom(index))
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+bool check_if_password_is_configured(uint8_t index)
+{
+  bool is_configured = check_is_configured_byte_address(eeprom_addr_is_pw(index));
+  return is_configured;
+}
+
+uint8_t update_length_of_password(uint8_t index)
+{
+  password_length[index] = (uint8_t)EEPROM.read(eeprom_addr_pw_len(index));
+  return password_length[index];
+}
+
+bool update_in_out_time_to_eeprom(uint8_t index, uint8_t _in_time_hour, uint8_t _in_time_minute, uint8_t _out_time_hour, uint8_t _out_time_minute)
+{
+  in_time_hour[index] = _in_time_hour;
+  in_time_minute[index] = _in_time_minute;
+  out_time_hour[index] = _out_time_hour;
+  out_time_minute[index] = _out_time_minute;
+  is_in_out_time_configured[index] = true;
+  EEPROM.write(eeprom_addr_in_time(index), _in_time_hour);
+  EEPROM.write(eeprom_addr_in_time(index) + 1, _in_time_minute);
+  EEPROM.write(eeprom_addr_out_time(index), _out_time_hour);
+  EEPROM.write(eeprom_addr_out_time(index) + 1, _out_time_minute);
+  configure_byte_address(eeprom_addr_is_inout(index));
+  return 1;
+}
+
+bool clear_in_out_time_to_eeprom(uint8_t index)
+{
+  clear_byte_address(eeprom_addr_is_inout(index));
+  return 1;
+}
+
+bool update_password_from_eeprom(uint8_t index)
+{
+start_again:
+  is_password_configured[index] = check_is_configured_byte_address(eeprom_addr_is_pw(index));
+  if (is_password_configured[index])
+  {
+    if (update_length_of_password(index) > 0)
+    {
+      if (update_length_of_password(index) > PASSWORD_STORE_COUNT)
+      {
+        clear_eeprom();
+        goto start_again;
+      }
+      LoadFromEeprom(eeprom_addr_mobile(index), mobile_number[index], MOBILE_NUMBER_LENGTH);
+      LoadFromEeprom(eeprom_addr_pw(index), password_value[index], password_length[index]);
+      read_in_out_time_from_eeprom(index);
+      return 1;
+    }
+    return 0;
+  }
+  else if (index == 0)
+  {
+    update_eeprom_data_at_index(0, _mobile_number, _password, 4);
+    goto start_again;
+  }
+  return 0;
+}
+
+bool read_in_out_time_from_eeprom(uint8_t index)
+{
+  is_in_out_time_configured[index] = (bool)(EEPROM.read(eeprom_addr_is_inout(index)));
+  in_time_hour[index] = (uint8_t)EEPROM.read(eeprom_addr_in_time(index));
+  in_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_in_time(index) + 1);
+  out_time_hour[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index));
+  out_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index) + 1);
+  return 1;
+}
+
+bool save_password_to_eeprom(uint8_t index, char *password_to_add, uint8_t len)
+{
+  for (uint8_t j = 0; j < len; j++)
+  {
+    password_value[index][j] = password_to_add[j];
+  }
+  password_length[index] = len;
+  update_password_to_eeprom(index);
+  return 1;
+}
+
+bool update_password_to_eeprom(uint8_t index)
+{
+  if (password_length[index] > 0)
+  {
+    EEPROM.write(eeprom_addr_pw_len(index), password_length[index]);
+    WriteEepromArray(eeprom_addr_mobile(index), mobile_number[index], MOBILE_NUMBER_LENGTH);
+    WriteEepromArray(eeprom_addr_pw(index), password_value[index], password_length[index]);
+    is_password_configured[index] = 1;
+    configure_byte_address(eeprom_addr_is_pw(index));
+    if (is_in_out_time_configured[index])
+    {
+      update_in_out_time_to_eeprom(index, in_time_hour[index], in_time_minute[index], out_time_hour[index], out_time_minute[index]);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+void clear_password_in_eeprom(uint8_t index)
+{
+  is_password_configured[index] = 0;
+  password_length[index] = 0;
+  memset(mobile_number[index], '\0', sizeof(mobile_number[index]));
+  memset(password_value[index], '\0', sizeof(password_value[index]));
+  clear_byte_address(eeprom_addr_is_pw(index));
+  clear_byte_address(eeprom_addr_pw_len(index));
+  clearEepromArray(eeprom_addr_mobile(index), eeprom_addr_mobile(index) + MOBILE_NUMBER_LENGTH);
+  clearEepromArray(eeprom_addr_pw(index), eeprom_addr_pw(index) + PASSWORD_STORE_COUNT);
+  clear_in_out_time_to_eeprom(index);
+}
+
+int8_t check_if_mobile_number_exists(char *arr)
+{
+  bool b_array_matched = 0;
+  for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+  {
+    if (is_password_configured[i])
+    {
+      b_array_matched = 1;
+      for (uint8_t j = 0; j < MOBILE_NUMBER_LENGTH; j++)
+      {
+        if (arr[j] != mobile_number[i][j])
+        {
+          b_array_matched = 0;
+          break;
+        }
+      }
+      if (b_array_matched)
+      {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+bool is_password_matched_with_any_user(char *arr, uint8_t len)
+{
+  for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+  {
+    if (is_password_matched(i, arr, len))
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+bool is_password_matched(uint8_t index, char *arr, uint8_t len)
+{
+  if (is_password_configured[index])
+  {
+    for (uint8_t i = 0; i < len; i++)
+    {
+      if (arr[i] != password_value[index][i])
+      {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  return 0;
+}
+
+void WriteEepromArray(size_t address, char *arr, size_t len)
+{
+  for (size_t x = 0; x < len; x++)
+  {
+    EEPROM.write(address + x, arr[x]);
+  }
+}
+
+void clearEepromArray(size_t start_address, size_t end_address)
+{
+  for (size_t x = start_address; x <= end_address; x++)
+  {
+    EEPROM.write(x, 0);
+  }
+}
+
+void LoadFromEeprom(size_t address, char *arr, size_t len)
+{ 
+  for (size_t x = 0; x < len; x++)
+  {
+    arr[x] = EEPROM.read(address + x);
+  }
+}
+
+bool check_is_configured_byte_address(size_t address)
+{
+  return (bool)(EEPROM.read(address));
+}
+
+bool configure_byte_address(size_t address)
+{
+  EEPROM.write(address, true);
+  return true;
+}
+
+bool clear_byte_address(size_t address)
+{
+  EEPROM.write(address, false);
+  return true;
+}
+
+#define DEFAULT_ALPHA_SPEED 200
+#define DEFAULT_BUZZER_TIMEOUT 10
+
+void write_alpha_speed_to_eeprom(uint16_t _alpha_speed)
+{
+  alpha_speed = _alpha_speed;
+  byte b1 = alpha_speed >> 8;
+  byte b2 = alpha_speed & 0xFF;
+  EEPROM.write(alpha_speed_start_address, b1);
+  EEPROM.write(alpha_speed_start_address + 1, b2);
+  read_alpha_speed_to_eeprom();
+}
+
+void write_buzzer_timeout_to_eeprom(uint16_t _buzzer_timeout)
+{
+  buzzer_timeout = _buzzer_timeout;
+  byte b1 = buzzer_timeout >> 8;
+  byte b2 = buzzer_timeout & 0xFF;
+  EEPROM.write(buzzer_timeout_start_address, b1);
+  EEPROM.write(buzzer_timeout_start_address + 1, b2);
+  read_buzzer_timeout_to_eeprom();
+}
+
+uint16_t read_buzzer_timeout_to_eeprom()
+{
+  byte b1 = EEPROM.read(buzzer_timeout_start_address);
+  byte b2 = EEPROM.read(buzzer_timeout_start_address + 1);
+  buzzer_timeout = (b1 << 8) + b2;
+  if (buzzer_timeout == 0)
+  {
+    write_buzzer_timeout_to_eeprom(DEFAULT_BUZZER_TIMEOUT);
+  }
+  return buzzer_timeout;
+}
+
+uint16_t read_alpha_speed_to_eeprom()
+{
+  byte b1 = EEPROM.read(alpha_speed_start_address);
+  byte b2 = EEPROM.read(alpha_speed_start_address + 1);
+  alpha_speed = (b1 << 8) + b2;
+  if (alpha_speed == 0)
+  {
+    write_alpha_speed_to_eeprom(DEFAULT_ALPHA_SPEED);
+  }
+  return alpha_speed;
+}
+
+void write_door_open_count_to_eeprom(uint16_t _door_open_count)
+{
+  door_open_count = _door_open_count;
+
+  byte b1 = door_open_count >> 8;
+  byte b2 = door_open_count & 0xFF;
+  EEPROM.write(door_open_count_start_address, b1);
+  EEPROM.write(door_open_count_start_address + 1, b2);
+  read_door_open_count_to_eeprom();
+}
+
+uint16_t read_door_open_count_to_eeprom()
+{
+  byte b1 = EEPROM.read(door_open_count_start_address);
+  byte b2 = EEPROM.read(door_open_count_start_address + 1);
+  door_open_count = (b1 << 8) + b2;
+  return door_open_count;
+}

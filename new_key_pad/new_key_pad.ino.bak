@@ -1,0 +1,6899 @@
+#include "Adafruit_Keypad.h"
+#include "lcd.h"
+#include "dc_motor.h"
+#include <EEPROM.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <avr/wdt.h>
+#include <avr/pgmspace.h>
+#include <Adafruit_Fingerprint.h>
+#include <SD.h>
+#include "pitches.h"
+#include "uRTCLib.h"
+#include <Ch376msc.h>
+
+#define mySerial Serial3
+Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+
+#define ONE_WIRE_BUS 42
+
+// #define DEBUG
+
+#ifdef DEBUG
+#define DEBUG_PRINT(x) Serial.print(x)
+#define DEBUG_PRINTLN(x) Serial.println(x)
+#else
+#define DEBUG_PRINT(x)
+#define DEBUG_PRINTLN(x)
+#endif
+
+// Debug Level System - Set DEBUG_LEVEL to control output (0 = no debug, 1-4 = increasing verbosity)
+#ifndef DEBUG_LEVEL
+#define DEBUG_LEVEL 4  // Default: no debug output
+#endif
+
+// Level 1 - Critical errors/system failures
+#if DEBUG_LEVEL >= 1
+#define DBG_L1(...) Serial.print(__VA_ARGS__)
+#define DBG_L1_PRINT(...) Serial.print(__VA_ARGS__)
+#define DBG_L1_PRINTLN(...) Serial.println(__VA_ARGS__)
+#else
+#define DBG_L1(...)
+#define DBG_L1_PRINT(...)
+#define DBG_L1_PRINTLN(...)
+#endif
+
+// Level 2 - Warnings/important events
+#if DEBUG_LEVEL >= 2
+#define DBG_L2(...) Serial.print(__VA_ARGS__)
+#define DBG_L2_PRINT(...) Serial.print(__VA_ARGS__)
+#define DBG_L2_PRINTLN(...) Serial.println(__VA_ARGS__)
+#else
+#define DBG_L2(...)
+#define DBG_L2_PRINT(...)
+#define DBG_L2_PRINTLN(...)
+#endif
+
+// Level 3 - Informational/debugging
+#if DEBUG_LEVEL >= 3
+#define DBG_L3(...) Serial.print(__VA_ARGS__)
+#define DBG_L3_PRINT(...) Serial.print(__VA_ARGS__)
+#define DBG_L3_PRINTLN(...) Serial.println(__VA_ARGS__)
+#else
+#define DBG_L3(...)
+#define DBG_L3_PRINT(...)
+#define DBG_L3_PRINTLN(...)
+#endif
+
+// Level 4 - Verbose/trace
+#if DEBUG_LEVEL >= 4
+#define DBG_L4(...) Serial.print(__VA_ARGS__)
+#define DBG_L4_PRINT(...) Serial.print(__VA_ARGS__)
+#define DBG_L4_PRINTLN(...) Serial.println(__VA_ARGS__)
+#else
+#define DBG_L4(...)
+#define DBG_L4_PRINT(...)
+#define DBG_L4_PRINTLN(...)
+#endif
+
+#define SIM7600 sim7600Serial
+
+#define LCD_PRINT(s) lcd.print(F(s))
+#define SERIAL_PRINT(s) Serial.print(F(s))
+#define SERIAL_PRINTLN(s) Serial.println(F(s))
+
+/********************************************************************/
+// Setup a oneWire instance to communicate with any OneWire devices
+// (not just Maxim/Dallas temperature ICs)
+OneWire oneWire(ONE_WIRE_BUS);
+/********************************************************************/
+// Pass our oneWire reference to Dallas Temperature.
+DallasTemperature sensors(&oneWire);
+#define sim7600Serial Serial1 //sim7600Serial(19, 18); // RX, TX pins for SIM7600
+/********************************************************************/
+unsigned long temperature_read_timeout;
+unsigned int temperature_read_time_interval = 10000;
+
+int temperature_value = 0;
+int prev_temperature_value = 0;
+
+bool b_temperature_alarm_triggerd = 0;
+#define TEMPERATURE_THRESHOLD 60
+
+uint16_t input_alpha_speed = 0;
+bool b_alpha_speed_updated = 0;
+uint16_t alpha_counter = 0;
+/***** Buzzer Vars [START] *****/
+
+// notes in the melody (store in flash to save SRAM)
+const uint16_t melody[] PROGMEM = {
+    NOTE_C4, NOTE_G3, NOTE_G3, NOTE_A3, NOTE_G3, 0, NOTE_B3, NOTE_C4};
+
+// note durations: 4 = quarter note, 8 = eighth note, etc.:
+// Moved to PROGMEM to save 16 bytes RAM
+const int noteDurations[] PROGMEM = {
+    4, 8, 8, 4, 4, 4, 4, 4};
+const int buzzer_pin = 45;
+bool b_buzzer_on = 0;
+unsigned long buzzer_timer = millis();
+bool b_sub_buzzer_on = 0;
+
+unsigned long door_open_time;
+
+/***** Buzzer Vars [END] *****/
+/***** RTC [START] *****/
+// RTC update interval = 1 minute = 60000ms
+#define RTC_UPDATE_INTERVAL_MS 60000UL  // 1 minute interval for time printing
+
+unsigned long rtc_timer = 0;
+// RTC vars - using smallest possible data types
+uint8_t second, minute, hour, day_of_week, date, month, year;
+uRTCLib rtc(0x68); // Create objects and assign module I2c Addresses
+
+// ULTRA-OPTIMIZED: All day names in single string with offsets (saves ~16 bytes vs array of pointers)
+// Format: "(Incorrect Day)\0Sunday\0Monday\0Tuesday\0Wednesday\0Thursday\0Friday\0Saturday\0"
+const char DAY_NAMES_COMPACT[] PROGMEM = "(Incorrect Day)\0Sunday\0Monday\0Tuesday\0Wednesday\0Thursday\0Friday\0Saturday";
+
+// Offsets to each day name in the compact string (saves RAM vs array of pointers)
+const uint8_t DAY_OFFSETS[] PROGMEM = {
+  0,   // Invalid: "(Incorrect Day)"
+  16,  // Sunday
+  23,  // Monday
+  30,  // Tuesday
+  38,  // Wednesday
+  48,  // Thursday
+  57,  // Friday
+  64   // Saturday
+};
+
+// Returns pointer to day name in PROGMEM
+const char* DayAsString_P(uint8_t day)
+{
+  if (day > 7) day = 0; // Invalid day
+  uint8_t offset = pgm_read_byte(&DAY_OFFSETS[day]);
+  return &DAY_NAMES_COMPACT[offset];
+}
+
+// Helper to print day name from PROGMEM - uses static buffer to avoid repeated stack allocation
+inline void printDayName(uint8_t day) {
+  static char buffer[12]; // Static = allocated once, not per call
+  strcpy_P(buffer, DayAsString_P(day));
+  DBG_L3(buffer);
+}
+
+// Inlined: Tiny function, avoid call overhead
+inline void update_rtc_timer()
+{
+  rtc_timer = millis();
+}
+
+void rtc_begin()
+{
+  Wire.begin();
+  /*
+   * Set Date and Time if you want to set it for the first time.
+   *
+   */
+  // Use following command once to set current day/time, then disable by commenting it out.
+  // Format:  Seconds(0-59), Minute(0-59), Hour(0-23), Day of Week - Sun thru Sat (1-7),
+  // Day of Month(1-31), Month(1-12), Year(00-99)
+  update_date_time_from_rtc();
+  update_rtc_timer();
+}
+
+// Inlined: Tiny function, avoid call overhead
+inline void set_rtc()
+{
+  rtc.set(second, minute, hour, 1, date, month, year);
+}
+
+// Optimized validation with early returns
+bool validate_date_and_time(uint8_t _second, uint8_t _minute, uint8_t _hour,
+                            uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  // Early return for invalid values
+  if (_second >= 60) return false;
+  if (_minute >= 60) return false;
+  if (_hour >= 24) return false;
+  if (_date == 0 || _date > 31) return false;
+  if (_month == 0 || _month > 12) return false;
+  if (_year >= 100) return false;
+  
+  // All valid - update and set
+  second = _second;
+  minute = _minute;
+  hour = _hour;
+  date = _date;
+  month = _month;
+  year = _year;
+  set_rtc();
+  update_date_time_from_rtc();
+  return true;
+}
+
+// Optimized: Batch read RTC values and optionally print
+void update_date_time_from_rtc()
+{
+  rtc.refresh();
+  
+  // Batch read all values at once (more efficient than individual calls)
+  month = rtc.month();
+  date = rtc.day();
+  year = rtc.year();
+  hour = rtc.hour();
+  minute = rtc.minute();
+  second = rtc.second();
+  day_of_week = rtc.dayOfWeek();
+
+  // Print time every update (1 minute interval)
+  DBG_L3(month);
+  DBG_L3(F("/"));
+  DBG_L3(date);
+  DBG_L3(F("/"));
+  DBG_L3(year);
+  DBG_L3(F("  Time: "));
+  DBG_L3(hour);
+  DBG_L3(F(":"));
+  DBG_L3(minute);
+  DBG_L3(F(":"));
+  DBG_L3(second);
+  DBG_L3(F(" "));
+  printDayName(day_of_week);
+  DBG_L3_PRINTLN();
+}
+
+// Ultra-optimized: Minimal operations, inline timer update
+void rtc_task()
+{
+  unsigned long current_millis = millis();
+  
+  // Single comparison, inline update
+  if (current_millis - rtc_timer > RTC_UPDATE_INTERVAL_MS)
+  {
+    update_date_time_from_rtc();
+    rtc_timer = current_millis;
+  }
+}
+/***** RTC [END] *****/
+/***** SD CARD [START] *****/
+
+// include the SD library:
+// set up variables using the SD utility library functions:
+Sd2Card card;
+SdVolume volume;
+SdFile root;
+
+const int chipSelect = 53;
+bool b_sd_card_not_initiated = 0;
+File myFile;
+void sd_init()
+{
+  SERIAL_PRINT("Initializing SD card...");
+  // see if the card is present and can be initialized:
+  if (!SD.begin(chipSelect))
+  {
+    SERIAL_PRINTLN("Card failed, or not present");
+    // don't do anything more:
+    b_sd_card_not_initiated = 1;
+    // while (1)
+  }
+  else
+  {
+    SERIAL_PRINTLN("card initialized.");
+  }
+
+  // we'll use the initialization code from the utility libraries
+  // since we're just testing if the card is working!
+  // if (!card.init(SPI_HALF_SPEED, chipSelect))
+  // else
+  // } // Now we will try to open the 'volume'/'partition' - it should be FAT16 or FAT32
+  // if (!volume.init(card))
+
+
+
+  // // print the type and size of the first FAT-type volume
+
+  // volumesize = volume.blocksPerCluster(); // clusters are collections of blocks
+  // volumesize *= volume.clusterCount();    // we'll have a lot of clusters
+  // volumesize /= 2;                        // SD card blocks are always 512 bytes (2 blocks are 1KB)
+
+
+  // // list all files in the card with date and size
+
+  // if (!SD.begin(chipSelect))
+  //   // don't do anything more:
+  //   while (1)
+  // if (myFile)
+  // else
+  //   // if the file didn't open, print an error:
+}
+void sd_card_task()
+{
+}
+#define TAB_STRING "     "
+#define CLOSE 0
+#define OPEN 1
+void update_log_entry(uint16_t sr_no, uint8_t _user_id, bool dir)
+{
+  char dataString[60];  // Fixed size buffer instead of dynamic String
+  int pos = 0;
+  
+  // Format serial number (3 digits)
+  if (sr_no < 10)
+  {
+    dataString[pos++] = '0';
+    dataString[pos++] = '0';
+    pos += sprintf(&dataString[pos], "%d", sr_no);
+  }
+  else if (sr_no < 100)
+  {
+    dataString[pos++] = '0';
+    pos += sprintf(&dataString[pos], "%d", sr_no);
+  }
+  else
+  {
+    pos += sprintf(&dataString[pos], "%d", sr_no);
+  }
+  
+  // Add tab and user ID
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", _user_id);
+  
+  // Add tab
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  
+  // Format date
+  if (date < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d/", date);
+  if (month < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d/", month);
+  if (year < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", year);
+  
+  // Add tab
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  
+  // Format time
+  if (hour < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d:", hour);
+  if (minute < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d:", minute);
+  if (second < 10) dataString[pos++] = '0';
+  pos += sprintf(&dataString[pos], "%d", second);
+  
+  // Add tab and direction
+  strcpy(&dataString[pos], TAB_STRING);
+  pos += strlen(TAB_STRING);
+  dataString[pos++] = (dir == CLOSE) ? 'C' : 'O';
+  dataString[pos] = '\0';
+
+  // open the file. note that only one file can be open at a time,
+  // so you have to close this one before opening another.
+  File dataFile = SD.open("BMS-LOG1.TXT", FILE_WRITE);
+
+  // if the file is available, write to it:
+  if (dataFile)
+  {
+    dataFile.println(dataString);
+    dataFile.close();
+    // print to the serial port too:
+    DBG_L3_PRINTLN(dataString);
+    DBG_L2_PRINTLN(F("BMS-LOG1.TXT Updated!"));
+  }
+  // if the file isn't open, pop up an error:
+  else
+  {
+    DBG_L1_PRINTLN(F("error opening BMS-LOG1.TXT"));
+  }
+}
+/***** SD CARD [END] *****/
+/*************** USB HARDWARE SERIAL CODE [START] ****************/
+bool b_backup_in_progress = 0;
+bool b_backup_complete = 0;
+
+bool b_flash_drive_attached = 0;
+
+// File header string stored in PROGMEM to save RAM
+const char file_start_str[] PROGMEM = "SR.    USER      DATE         TIME      REMARKS\n---------------------------------------------\n";
+//..............................................................................................................................
+// Leave the default jumper settings for the baud rate (9600) on the CH376, the library will set it up the chosen speed(HW serial only)
+Ch376msc flashDrive(Serial2, 115200); // Ch376 object with hardware Serial1 on arduino mega baudrate: 9600, 19200, 57600, 115200
+
+// static char helpString[] = {"h:Print this help\n\n1:Create\n2:Append\n3:Read\n4:Read date/time\n"
+//                             "5:Modify date/time\n6:Delete\n7:List dir\n8:Print free space"
+
+void init_flash_drive()
+{
+  flashDrive.init();
+}
+void flash_drive_task()
+{
+  if (flashDrive.checkIntMessage())
+  {
+    if (flashDrive.getDeviceStatus())
+    {
+      DBG_L2_PRINTLN(F("Flash drive attached!"));
+      b_flash_drive_attached = 1;
+    }
+    else
+    {
+      DBG_L2_PRINTLN(F("Flash drive detached!"));
+      b_flash_drive_attached = 0;
+    }
+  }
+  if (b_backup_in_progress)
+  {
+    copy_data_from_sd_card_to_usb_flash_drive();
+  }
+}
+void copy_data_from_sd_card_to_usb_flash_drive()
+{
+  bool b_flash_drive_file_available = 0;
+  char input_string_char_array[80];  // Reduced from 100 to save 20 bytes RAM
+
+  SERIAL_PRINT("File opened!");
+  File dataFile = SD.open("BMS-LOG1.TXT");
+  flashDrive.setFileName("BMS-LOG1.TXT");
+  flashDrive.openFile();
+  char pgm_buffer[80];
+  strcpy_P(pgm_buffer, file_start_str);
+  flashDrive.writeFile(pgm_buffer, strlen(pgm_buffer));
+  if (dataFile)
+  {
+    uint8_t cursor_index = 0;
+    while (dataFile.available())
+    {
+      String input_string_from_sd_card = dataFile.readStringUntil('\n');
+      DBG_L4_PRINTLN(input_string_from_sd_card);
+      memset(input_string_char_array, '\0', sizeof(input_string_char_array));
+      input_string_from_sd_card.toCharArray(input_string_char_array, input_string_from_sd_card.length());
+      input_string_char_array[strlen(input_string_char_array)] = '\n';
+      flashDrive.writeFile(input_string_char_array, strlen(input_string_char_array));
+      memset(input_string_char_array, '\0', sizeof(input_string_char_array));
+    }
+    flashDrive.closeFile();
+    dataFile.close();
+    SERIAL_PRINTLN("Reading recently written file");
+    flashDrive.setFileName("BMS-LOG1.TXT"); // set the file name
+    flashDrive.openFile();                  // open the file
+    bool readMore = true;
+    char char_array[40];  // Reduced from 43 to save 3 bytes RAM
+    // read data from flash drive until we reach EOF
+    while (readMore)
+    { // our temporary buffer where we read data from flash drive and the size of that buffer
+      readMore = flashDrive.readFile(char_array, sizeof(char_array));
+      DBG_L4(char_array); // print the contents of the temporary buffer
+    }
+    flashDrive.closeFile(); // at the end, close the file
+    printInfo("Done!");
+    b_backup_complete = 1;
+  }
+  else
+  {
+    b_backup_in_progress = 0;
+    SERIAL_PRINTLN("error opening BMS-LOG1.TXT");
+  }
+}
+// Print information
+void printInfo(const char info[])
+{
+
+  int infoLength = strlen(info);
+  if (infoLength > 40)
+  {
+    infoLength = 40;
+  }
+  DBG_L3(F("\n\n"));
+  for (int a = 0; a < infoLength; a++)
+  {
+    DBG_L3('*');
+  }
+  DBG_L3_PRINTLN();
+  DBG_L3_PRINTLN(info);
+  for (int a = 0; a < infoLength; a++)
+  {
+    DBG_L3('*');
+  }
+  DBG_L3(F("\n\n"));
+}
+/*************** USB HARDWARE SERIAL CODE [END] ****************/
+/***** EEPROM SECTION [START] **/
+
+// Legacy alias for backward compatibility - use MAX_NUM_OF_USERS instead
+#define MAX_USER_TO_BE_STORED MAX_NUM_OF_USERS
+
+#define EEPROM_STARTING_ADDRESS 0
+
+#define IS_CONFIGURED_BYTE_ADDRESS_COUNT 1
+#define MOBILE_NUMBER_LENGTH 10
+#define PASSWORD_LEN_COUNT 1
+#define PASSWORD_STORE_COUNT 15
+
+#define IN_OUT_TIME_LEN_COUNT 2
+
+#define ALPHA_SPEED_LEN_COUNT 4
+#define BUZZER_TIMEOUT_LEN_COUNT 4
+#define DOOR_OPEN_COUND_LEN_COUNT 4
+#define MAX_HOLIDAYS 20  // Reduced from 30 to save 30 bytes RAM
+#define HOLIDAY_DATA_SIZE 3  // date (1 byte) + month (1 byte) + year (1 byte)
+#define HOLIDAY_COUNT_SIZE 1  // 1 byte to store count
+
+// Compute EEPROM addresses on-the-fly to save RAM
+#define USER_BLOCK_SIZE (1 /*is_pw*/ + MOBILE_NUMBER_LENGTH + 1 /*pw len*/ + 1 /*pw start*/ + PASSWORD_STORE_COUNT + 1 /*is_in_out*/ + IN_OUT_TIME_LEN_COUNT /*in*/ + IN_OUT_TIME_LEN_COUNT /*out*/ + 1 /*padding*/)
+
+static inline uint16_t eeprom_addr_user_base(uint8_t index) { return (uint16_t)(EEPROM_STARTING_ADDRESS + (uint16_t)index * (uint16_t)USER_BLOCK_SIZE); }
+static inline uint16_t eeprom_addr_is_pw(uint8_t index) { return eeprom_addr_user_base(index) + 0; }
+static inline uint16_t eeprom_addr_mobile(uint8_t index) { return eeprom_addr_is_pw(index) + 1; }
+static inline uint16_t eeprom_addr_pw_len(uint8_t index) { return eeprom_addr_mobile(index) + MOBILE_NUMBER_LENGTH + 1; }
+static inline uint16_t eeprom_addr_pw(uint8_t index) { return eeprom_addr_pw_len(index) + 1; }
+static inline uint16_t eeprom_addr_is_inout(uint8_t index) { return eeprom_addr_pw(index) + PASSWORD_STORE_COUNT + 1; }
+static inline uint16_t eeprom_addr_in_time(uint8_t index) { return eeprom_addr_is_inout(index) + 1; }
+static inline uint16_t eeprom_addr_out_time(uint8_t index) { return eeprom_addr_in_time(index) + IN_OUT_TIME_LEN_COUNT; }
+static inline uint16_t eeprom_addr_after_users(void) { return eeprom_addr_out_time(MAX_USER_TO_BE_STORED - 1) + IN_OUT_TIME_LEN_COUNT + 1; }
+
+size_t alpha_speed_start_address;
+size_t door_open_count_start_address;
+size_t buzzer_timeout_start_address;
+size_t holiday_count_start_address;
+size_t holiday_data_start_address;
+
+bool is_password_configured[MAX_USER_TO_BE_STORED] = {0};
+char mobile_number[MAX_USER_TO_BE_STORED][MOBILE_NUMBER_LENGTH];
+uint8_t password_length[MAX_USER_TO_BE_STORED] = {0};
+char password_value[MAX_USER_TO_BE_STORED][PASSWORD_STORE_COUNT];
+
+bool is_in_out_time_configured[MAX_USER_TO_BE_STORED] = {0};
+uint8_t in_time_hour[MAX_USER_TO_BE_STORED] = {0};
+uint8_t in_time_minute[MAX_USER_TO_BE_STORED] = {0};
+uint8_t out_time_hour[MAX_USER_TO_BE_STORED] = {0};
+uint8_t out_time_minute[MAX_USER_TO_BE_STORED] = {0};
+
+uint16_t alpha_speed;
+uint16_t buzzer_timeout;
+uint16_t door_open_count;
+
+// Holiday management - optimized to save RAM
+// Holidays are read from EEPROM on-demand instead of keeping all in RAM
+uint8_t holiday_count = 0;
+// Removed holidays[] array - read from EEPROM directly to save 60 bytes RAM
+
+char _mobile_number[10] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0'};
+char _password[15] = {/*'A', 'B',*/ '1', '2', '3', '4', '5', '6', '7', '8', '9', '3', '1', '2', 'Z'};
+char _password1[15];
+HardwareSerial *port;
+
+// void convert_mobile_numbers_to_string()
+//   for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+//   {
+//     if (is_password_configured[i])
+//     {
+//       for (uint8_t j = 0; j < 10; j++)
+//       {
+//       }
+//     }
+//   }
+
+void init_eeprom()
+{
+  set_eeprom_addresses();
+  SERIAL_PRINTLN("Address assigned");
+  update_data_from_eeprom();
+}
+void clear_eeprom()
+{
+  for (int i = 0; i < EEPROM.length(); i++)
+  {
+    SERIAL_PRINT("clearing eeprom at address");
+    DBG_L4_PRINTLN(i);
+    EEPROM.write(i, 0);
+  }
+  SERIAL_PRINT("EEPROM Cleared!");
+}
+void clear_eeprom_data()
+{
+  // Use computed addresses instead of large address arrays
+  clearEepromArray(EEPROM_STARTING_ADDRESS, eeprom_addr_after_users());
+}
+void print_eeprom_data(HardwareSerial *serial1)
+{
+  serial1->print("\n|CONFIGURED?|MOBILE NUMBER|PW LENGTH|PASSWORD|IS_INOUT_CONFIG|IN_TIME|OUT_TIME\n");
+  for (uint8_t j = 0; j < MAX_USER_TO_BE_STORED; j++)
+  {
+    if (!is_password_configured[j])
+    {
+      serial1->print("|NO|NA|NA|NA|NA|NA|NA\n");
+    }
+    else
+    {
+      serial1->print("|YES|");
+      for (uint8_t i = 0; i < 10; i++)
+      {
+        serial1->print(mobile_number[j][i]);
+      }
+      serial1->print("|");
+      serial1->print(password_length[j]);
+      serial1->print("|");
+      for (uint8_t i = 0; i < password_length[j]; i++)
+      {
+        serial1->print(password_value[j][i]);
+      }
+      if (!is_in_out_time_configured[j])
+      {
+        serial1->print("|NO|NA|NA|\n");
+      }
+      else
+      {
+        serial1->print("|YES|");
+        serial1->print(in_time_hour[j]);
+        serial1->print(":");
+        serial1->print(in_time_minute[j]);
+        serial1->print("|");
+        serial1->print(out_time_hour[j]);
+        serial1->print(":");
+        serial1->print(out_time_minute[j]);
+        serial1->print("|\n");
+      }
+    }
+  }
+  serial1->print("Alpha Speed :");
+  serial1->print(alpha_speed);
+  serial1->print(" | Door Open Count :");
+  serial1->print(door_open_count);
+  serial1->print(" | Buzzer Timeout :");
+  serial1->println(buzzer_timeout);
+}
+
+void set_eeprom_addresses()
+{
+  // Derive global parameter addresses once; user addresses are computed on demand
+  alpha_speed_start_address = eeprom_addr_after_users();
+  door_open_count_start_address = alpha_speed_start_address + ALPHA_SPEED_LEN_COUNT;
+  buzzer_timeout_start_address = door_open_count_start_address + BUZZER_TIMEOUT_LEN_COUNT;
+  holiday_count_start_address = buzzer_timeout_start_address + BUZZER_TIMEOUT_LEN_COUNT;
+  holiday_data_start_address = holiday_count_start_address + HOLIDAY_COUNT_SIZE;
+  /*
+  for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
+  {
+    DBG_L4(F("Index ------------------------------------->"));
+    DBG_L4_PRINTLN(i);
+    DBG_L4(F("is_pw_configured_address "));
+    DBG_L4_PRINTLN(is_pw_configured_address[i]);
+    DBG_L4(F("mobile_number_start_address "));
+    DBG_L4_PRINTLN(mobile_number_start_address[i]);
+    DBG_L4(F("password_length_address "));
+    DBG_L4_PRINTLN(password_length_address[i]);
+    DBG_L4(F("password_start_address "));
+    DBG_L4_PRINTLN(password_start_address[i]);
+    DBG_L4(F("in_out_bit_configuratino_address"));
+    DBG_L4_PRINTLN(is_in_out_time_configured_address[i]);
+    DBG_L4(F("in_time_start_address"));
+    DBG_L4_PRINTLN(in_time_start_address[i]);
+    DBG_L4(F("out_time_start_address"));
+    DBG_L4_PRINTLN(out_time_start_address[i]);
+  }
+    DBG_L4(F("alpha_speed_start_address "));
+    DBG_L4_PRINTLN(alpha_speed_start_address);
+    DBG_L4(F("door_open_count_start_address "));
+    DBG_L4_PRINTLN(door_open_count_start_address);
+    DBG_L4(F("buzzer_timeout_start_address "));
+    DBG_L4_PRINTLN(buzzer_timeout_start_address);
+*/
+}
+#define DEFAULT_ALPHA_SPEED 200
+#define DEFAULT_BUZZER_TIMEOUT 10
+void write_alpha_speed_to_eeprom(uint16_t _alpha_speed)
+{
+  alpha_speed = _alpha_speed;
+  byte b1 = alpha_speed >> 8;
+  byte b2 = alpha_speed & 0xFF;
+  EEPROM.write(alpha_speed_start_address, b1);
+  EEPROM.write(alpha_speed_start_address + 1, b2);
+  read_alpha_speed_to_eeprom();
+}
+
+void write_buzzer_timeout_to_eeprom(uint16_t _buzzer_timeout)
+{
+  buzzer_timeout = _buzzer_timeout;
+  byte b1 = buzzer_timeout >> 8;
+  byte b2 = buzzer_timeout & 0xFF;
+  EEPROM.write(buzzer_timeout_start_address, b1);
+  EEPROM.write(buzzer_timeout_start_address + 1, b2);
+  read_buzzer_timeout_to_eeprom();
+}
+
+uint16_t read_buzzer_timeout_to_eeprom()
+{
+  byte b1 = EEPROM.read(buzzer_timeout_start_address);
+  byte b2 = EEPROM.read(buzzer_timeout_start_address + 1);
+  buzzer_timeout = (b1 << 8) + b2;
+  if (buzzer_timeout == 0)
+  {
+    write_buzzer_timeout_to_eeprom(DEFAULT_BUZZER_TIMEOUT);
+  }
+  return buzzer_timeout;
+}
+
+uint16_t read_alpha_speed_to_eeprom()
+{
+  byte b1 = EEPROM.read(alpha_speed_start_address);
+  byte b2 = EEPROM.read(alpha_speed_start_address + 1);
+  alpha_speed = (b1 << 8) + b2;
+  if (alpha_speed == 0)
+  {
+    write_alpha_speed_to_eeprom(DEFAULT_ALPHA_SPEED);
+  }
+  return alpha_speed;
+}
+void write_door_open_count_to_eeprom(uint16_t _door_open_count)
+{
+  door_open_count = _door_open_count;
+
+  byte b1 = door_open_count >> 8;
+  byte b2 = door_open_count & 0xFF;
+  EEPROM.write(door_open_count_start_address, b1);
+  EEPROM.write(door_open_count_start_address + 1, b2);
+  read_door_open_count_to_eeprom();
+}
+
+uint16_t read_door_open_count_to_eeprom()
+{
+  byte b1 = EEPROM.read(door_open_count_start_address);
+  byte b2 = EEPROM.read(door_open_count_start_address + 1);
+  door_open_count = (b1 << 8) + b2;
+  return door_open_count;
+}
+
+// Holiday EEPROM functions
+void write_holiday_to_eeprom(uint8_t index, uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  // Write a single holiday to EEPROM at specified index
+  size_t addr = holiday_data_start_address + (index * HOLIDAY_DATA_SIZE);
+  EEPROM.write(addr, _date);
+  EEPROM.write(addr + 1, _month);
+  EEPROM.write(addr + 2, _year);
+}
+
+void write_holidays_to_eeprom()
+{
+  // Only write count - individual holidays are written directly
+  EEPROM.write(holiday_count_start_address, holiday_count);
+}
+
+void read_holidays_from_eeprom()
+{
+  // Only read count, not all holiday data (saves RAM - read from EEPROM on-demand)
+  holiday_count = EEPROM.read(holiday_count_start_address);
+  if (holiday_count > MAX_HOLIDAYS)
+  {
+    holiday_count = 0;
+    write_holidays_to_eeprom();
+  }
+  // Holidays are read from EEPROM directly when needed (is_holiday, view menu functions)
+}
+
+bool is_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  // Read holidays directly from EEPROM to save RAM
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  for (uint8_t i = 0; i < count && i < MAX_HOLIDAYS; i++)
+  {
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    uint8_t h_date = EEPROM.read(addr);
+    uint8_t h_month = EEPROM.read(addr + 1);
+    uint8_t h_year = EEPROM.read(addr + 2);
+    
+    if (h_date == _date && h_month == _month && h_year == _year)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool add_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  // Read current count from EEPROM
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  if (count >= MAX_HOLIDAYS)
+  {
+    return false; // No space
+  }
+  
+  // Check if holiday already exists
+  if (is_holiday(_date, _month, _year))
+  {
+    return false; // Already exists
+  }
+  
+  // Validate date
+  if (_date == 0 || _date > 31 || _month == 0 || _month > 12 || _year > 99)
+  {
+    return false; // Invalid date
+  }
+  
+  // Write holiday directly to EEPROM
+  write_holiday_to_eeprom(count, _date, _month, _year);
+  count++;
+  holiday_count = count;
+  write_holidays_to_eeprom(); // Update count
+  return true;
+}
+
+bool remove_holiday(uint8_t _date, uint8_t _month, uint8_t _year)
+{
+  // Read count from EEPROM
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  // Find the holiday to remove
+  for (uint8_t i = 0; i < count; i++)
+  {
+    size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+    uint8_t h_date = EEPROM.read(addr);
+    uint8_t h_month = EEPROM.read(addr + 1);
+    uint8_t h_year = EEPROM.read(addr + 2);
+    
+    if (h_date == _date && h_month == _month && h_year == _year)
+    {
+      // Shift remaining holidays in EEPROM
+      for (uint8_t j = i; j < count - 1; j++)
+      {
+        size_t src_addr = holiday_data_start_address + ((j + 1) * HOLIDAY_DATA_SIZE);
+        size_t dst_addr = holiday_data_start_address + (j * HOLIDAY_DATA_SIZE);
+        EEPROM.write(dst_addr, EEPROM.read(src_addr));
+        EEPROM.write(dst_addr + 1, EEPROM.read(src_addr + 1));
+        EEPROM.write(dst_addr + 2, EEPROM.read(src_addr + 2));
+      }
+      count--;
+      holiday_count = count;
+      write_holidays_to_eeprom(); // Update count
+      return true;
+    }
+  }
+  return false; // Not found
+}
+
+void update_data_from_eeprom()
+{
+  for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
+  {
+    update_password_from_eeprom(i);
+  }
+  read_alpha_speed_to_eeprom();
+  read_buzzer_timeout_to_eeprom();
+  read_door_open_count_to_eeprom();
+  read_holidays_from_eeprom();
+}
+
+// Print all holidays stored in EEPROM
+void print_holidays()
+{
+  uint8_t count = EEPROM.read(holiday_count_start_address);
+  if (count > MAX_HOLIDAYS) count = 0;
+  
+  DBG_L2_PRINTLN(F(""));
+  DBG_L2_PRINTLN(F("========== HOLIDAYS =========="));
+  DBG_L2(F("Total Holidays: "));
+  DBG_L2_PRINTLN(count);
+  
+  if (count == 0)
+  {
+    DBG_L2_PRINTLN(F("No holidays configured"));
+  }
+  else
+  {
+    DBG_L2_PRINTLN(F(""));
+    DBG_L2_PRINTLN(F("Date    Month   Year"));
+    DBG_L2_PRINTLN(F("-------------------"));
+    
+    for (uint8_t i = 0; i < count && i < MAX_HOLIDAYS; i++)
+    {
+      size_t addr = holiday_data_start_address + (i * HOLIDAY_DATA_SIZE);
+      uint8_t h_date = EEPROM.read(addr);
+      uint8_t h_month = EEPROM.read(addr + 1);
+      uint8_t h_year = EEPROM.read(addr + 2);
+      
+      // Format: DD/MM/YY
+      if (h_date < 10) DBG_L2(F("0"));
+      DBG_L2(h_date);
+      DBG_L2(F("/"));
+      if (h_month < 10) DBG_L2(F("0"));
+      DBG_L2(h_month);
+      DBG_L2(F("/"));
+      if (h_year < 10) DBG_L2(F("0"));
+      DBG_L2_PRINTLN(h_year);
+    }
+  }
+  DBG_L2_PRINTLN(F("=============================="));
+  DBG_L2_PRINTLN(F(""));
+}
+
+bool update_eeprom_data_at_index(uint8_t index, char *mobile_number_to_add, char *password_to_add, uint8_t len)
+{
+  if (len > 0)
+  {
+    password_length[index] = len;
+    for (uint8_t i = 0; i < MOBILE_NUMBER_LENGTH; i++)
+    {
+      mobile_number[index][i] = mobile_number_to_add[i];
+    }
+    for (uint8_t j = 0; j < len; j++)
+    {
+      password_value[index][j] = password_to_add[j];
+    }
+    if (update_password_to_eeprom(index))
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+bool check_if_password_is_configured(uint8_t index)
+{
+  bool is_configured = check_is_configured_byte_address(eeprom_addr_is_pw(index));
+  return is_configured;
+}
+
+uint8_t update_length_of_password(uint8_t index)
+{
+  password_length[index] = (uint8_t)EEPROM.read(eeprom_addr_pw_len(index));
+  return password_length[index];
+}
+bool update_in_out_time_to_eeprom(uint8_t index, uint8_t _in_time_hour, uint8_t _in_time_minute,
+                                  uint8_t _out_time_hour, uint8_t _out_time_minute)
+{
+  in_time_hour[index] = _in_time_hour;
+  in_time_minute[index] = _in_time_minute;
+  out_time_hour[index] = _out_time_hour;
+  out_time_minute[index] = _out_time_minute;
+  is_in_out_time_configured[index] = true;
+  EEPROM.write(eeprom_addr_in_time(index), _in_time_hour);
+  EEPROM.write(eeprom_addr_in_time(index) + 1, _in_time_minute);
+  EEPROM.write(eeprom_addr_out_time(index), _out_time_hour);
+  EEPROM.write(eeprom_addr_out_time(index) + 1, _out_time_minute);
+  configure_byte_address(eeprom_addr_is_inout(index));
+}
+bool clear_in_out_time_to_eeprom(uint8_t index)
+{
+  clear_byte_address(eeprom_addr_is_inout(index));
+  return 1;
+}
+
+bool update_password_from_eeprom(uint8_t index)
+{
+start_again:
+  is_password_configured[index] = check_is_configured_byte_address(eeprom_addr_is_pw(index));
+  if (is_password_configured[index])
+  {
+    if (update_length_of_password(index) > 0)
+    {
+      if (update_length_of_password(index) > PASSWORD_STORE_COUNT)
+      {
+        clear_eeprom();
+        goto start_again;
+      }
+      LoadFromEeprom(eeprom_addr_mobile(index), mobile_number[index], MOBILE_NUMBER_LENGTH);
+      LoadFromEeprom(eeprom_addr_pw(index), password_value[index], password_length[index]);
+      read_in_out_time_from_eeprom(index);
+      return 1;
+    }
+    return 0;
+  }
+  else if (index == 0)
+  {
+    update_eeprom_data_at_index(0, _mobile_number, _password, 4);
+    goto start_again;
+  }
+  return 0;
+}
+bool read_in_out_time_from_eeprom(uint8_t index)
+{
+  is_in_out_time_configured[index] = (bool)(EEPROM.read(eeprom_addr_is_inout(index)));
+  in_time_hour[index] = (uint8_t)EEPROM.read(eeprom_addr_in_time(index));
+  in_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_in_time(index) + 1);
+  out_time_hour[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index));
+  out_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index) + 1);
+}
+
+bool save_password_to_eeprom(uint8_t index, char *password_to_add, uint8_t len)
+{
+  for (uint8_t j = 0; j < len; j++)
+  {
+    password_value[index][j] = password_to_add[j];
+  }
+  password_length[index] = len;
+  update_password_to_eeprom(index);
+}
+
+bool update_password_to_eeprom(uint8_t index)
+{
+  if (password_length[index] > 0)
+  {
+    EEPROM.write(eeprom_addr_pw_len(index), password_length[index]);
+    WriteEepromArray(eeprom_addr_mobile(index), mobile_number[index], MOBILE_NUMBER_LENGTH);
+    WriteEepromArray(eeprom_addr_pw(index), password_value[index], password_length[index]);
+    is_password_configured[index] = 1;
+    configure_byte_address(eeprom_addr_is_pw(index));
+    if (is_in_out_time_configured[index])
+    {
+      update_in_out_time_to_eeprom(index, in_time_hour[index], in_time_minute[index], out_time_hour[index], out_time_minute[index]);
+    }
+    return 1;
+  }
+  return 0;
+}
+
+void clear_password_in_eeprom(uint8_t index)
+{
+  is_password_configured[index] = 0;
+  password_length[index] = 0;
+  memset(mobile_number[index], '\0', sizeof(mobile_number[index]));
+  memset(password_value[index], '\0', sizeof(password_value[index]));
+  clear_byte_address(eeprom_addr_is_pw(index));
+  clear_byte_address(eeprom_addr_pw_len(index));
+  clearEepromArray(eeprom_addr_mobile(index), eeprom_addr_mobile(index) + MOBILE_NUMBER_LENGTH);
+  clearEepromArray(eeprom_addr_pw(index), eeprom_addr_pw(index) + PASSWORD_STORE_COUNT);
+  clear_in_out_time_to_eeprom(index);
+  // for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
+  //   if (index != i)
+}
+
+int check_if_mobile_number_exists(char *arr)
+{
+  bool b_array_matched = 0;
+  for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
+  {
+    if (is_password_configured[i])
+    {
+      b_array_matched = 1;
+      DBG_L4_PRINTLN(i);
+
+      for (uint8_t j = 0; j < MOBILE_NUMBER_LENGTH; j++)
+      {
+        DBG_L4(mobile_number[i]);
+        if (arr[j] != mobile_number[i][j])
+        {
+          b_array_matched = 0;
+          break;
+        }
+        DBG_L4_PRINTLN();
+      }
+      if (b_array_matched)
+      {
+        DBG_L2(i);
+        DBG_L2_PRINTLN(F(" - Mobile Number exists!!"));
+        return i;
+      }
+    }
+  }
+  DBG_L2_PRINTLN(F("Mobile Number doesn't exists!!"));
+  return -1;
+}
+
+bool is_password_matched_with_any_user(char *arr, uint8_t len)
+{
+  for (uint8_t i = 0; i < MAX_USER_TO_BE_STORED; i++)
+  {
+    if (is_password_matched(i, arr, len))
+    {
+      DBG_L2_PRINTLN(F("Password matched!!"));
+      return 1;
+    }
+  }
+  DBG_L2_PRINTLN(F("PW not matched!!"));
+
+  return 0;
+}
+bool is_password_matched(uint8_t index, char *arr, uint8_t len)
+{
+  DBG_L4_PRINTLN(index);
+  if (is_password_configured[index])
+  {
+    for (uint8_t i = 0; i < len /*password_length[index]*/; i++)
+    {
+      if (arr[i] != password_value[index][i])
+      {
+        DBG_L3_PRINTLN(F("PW not matched!!"));
+        return 0;
+      }
+    }
+    DBG_L2_PRINTLN(F("PW matched!!"));
+    return 1;
+  }
+  DBG_L3_PRINTLN(F("PW not matched!!"));
+  return 0;
+}
+/*** EEPROM function [START] **/
+
+void WriteEepromArray(size_t address, char *arr, size_t len)
+{
+  for (size_t x = 0; x < len; x++)
+  {
+    EEPROM.write(address + x, arr[x]);
+  }
+}
+
+void clearEepromArray(size_t start_address, size_t end_address)
+{
+  for (size_t x = start_address; x <= end_address; x++)
+  {
+    EEPROM.write(x, 0);
+  }
+}
+
+void LoadFromEeprom(size_t address, char *arr, size_t len)
+{ // Be aware that this function modifys the data pointed to by "arr"
+  for (size_t x = 0; x < len; x++)
+  {
+    arr[x] = EEPROM.read(address + x);
+  }
+}
+
+bool check_is_configured_byte_address(size_t address)
+{
+  bool is_configured_byte_address_check = (bool)(EEPROM.read(address));
+  return is_configured_byte_address_check;
+}
+
+bool configure_byte_address(size_t address)
+{
+  EEPROM.write(address, true);
+  return true;
+}
+
+bool clear_byte_address(size_t address)
+{
+  EEPROM.write(address, false);
+  return true;
+}
+
+/***** EEPROM SECTION [END] **/
+uint32_t start, stop;
+
+const byte ROWS = 4; // rows
+const byte COLS = 4; // columns
+// define the symbols on the buttons of the keypads
+
+uint8_t times_prssd = 0;
+// Moved to PROGMEM to save 30 bytes RAM
+const char num_to_alpha[10][3] PROGMEM = {{'Y', 'Z'},
+                            {'A', 'B', 'C'},
+                            {'D', 'E', 'F'},
+                            {'G', 'H', 'I'},
+                            {'J', 'K', 'L'},
+                            {'M', 'N', '0'},
+                            {'P', 'Q', 'R'},
+                            {'S', 'T'},
+                            {'U', 'V'},
+                            {'W', 'X'}};
+extern bool is_num;
+extern bool is_new_key;
+char prev_key;
+
+// char keys[ROWS][COLS] = {
+//     {'1', '2', '3', 'x', 'x'}, // 4
+//     {'4', '5', '6', '^', 'x'}, // 5
+//     {'7', '8', '9', '&', 'x'}, // 6
+//     {'@', '0', '#', '*', 'x'}, // 7
+//     {'x', 'x', 'x', 'x', '!'}  // 2
+char keys[ROWS][COLS] = {
+    {'1', '2', '3', 'x'}, // 4
+    {'4', '5', '6', '^'}, // 5
+    {'7', '8', '9', '&'}, // 6
+    {'@', '0', '#', '*'}  //,      //7
+};
+//  11    12   13   14   3
+
+extern char key;
+// byte rowPins[ROWS] = {40, 37, 31, 30, 32}; // connect to the row pinouts of the keypad
+// byte colPins[COLS] = {33, 34, 35, 36, 32}; // connect to the column pinouts of the keypad
+
+// byte rowPins[ROWS] = {36, 34, 32, 30, 40}; // connect to the row pinouts of the keypad
+// byte colPins[COLS] = {37, 35, 33, 31, 40}; // connect to the column pinouts of the keypad
+
+byte rowPins[ROWS] = {36, 34, 32, 30}; // connect to the row pinouts of the keypad
+byte colPins[COLS] = {37, 35, 33, 31}; // connect to the column pinouts of the keypad
+
+// initialize an instance of class NewKeypad
+Adafruit_Keypad customKeypad = Adafruit_Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+bool cancel_counter;
+bool display_idle_screen = 1;
+
+float temp;
+float t;
+
+const int on_switch_pin = 40;
+bool on_prev_state, on_current_state;
+#define LCD_STATE_ON 1
+// #define LCD_STATE_OFF 0
+bool lcd_state = LCD_STATE_ON;
+
+/** LCD VARS [END] ***/
+const int rs = A12, en = 22, d4 = 23, d5 = 24, d6 = 25, d7 = 26;
+bool is_new_key = 0;
+bool is_displayed = 0;
+bool is_num = 1;
+char key;
+uint8_t user_id = 0;
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+
+char password[15];
+char phone_number[10];
+
+uint8_t ph_len = 0;
+uint8_t pass_length = 0;
+// MAX_NUM_OF_USERS is now defined at the top of the file (line ~520)
+// bool does_user_exist[MAX_NUM_OF_USERS] = {0};  // Removed: redundant with is_password_configured, saves 18 bytes RAM
+
+extern bool check_if_password_is_configured(uint8_t index);
+uint8_t display_screen = 0;
+
+extern bool b_command_open_door;
+extern bool b_command_close_door;
+/** LCD VARS [END] ***/
+
+uint32_t prss_time, rels_time, prev_rels_time, time_difference;
+// Removed chararr[50] - unused, saves 50 bytes RAM
+uint16_t lcd_press_counter = 0;
+unsigned long lastDebounceTime = 0; // the last time the output pin was toggled
+unsigned long debounceDelay = 100;  // the debounce time; increase if the output flickers
+
+unsigned long door_open_start_time;
+unsigned long door_error_start_time;
+#define DOOR_OPEN_TIMEOUT 10000
+#define DOOR_OPEN_ERROR_TIMEOUT 5000
+
+#define GUN_POINT_PRESS_TIMEOUT 3000
+
+bool b_vibration_alarm_triggered = 0;
+bool b_gun_point_activation_triggerd = 0;
+
+bool b_error_in_door_open = 0;
+bool b_error_in_door_close = 0;
+
+const int siren_pin[2] = {27, 28};
+bool current_ir_value = 0;
+bool previous_ir_value = 0;
+
+const int ir_input_pin = A0;
+bool b_siren_on = 0;
+
+
+// #define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+
+
+bool is_door_aligned_by_ir()
+{
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+ return 1;
+#else
+  return !current_ir_value;
+#endif
+}
+
+void siren_on(uint8_t i)
+{
+  digitalWrite(i, 1);
+  b_siren_on = 1;
+}
+void siren_off(uint8_t i)
+{
+  digitalWrite(i, 0);
+  b_siren_on = 0;
+}
+const int analogInPin = A14; // Analog input pin that the potentiometer is attached to
+uint16_t battery_analog_input;
+uint16_t battery_percentage;
+void gpio_init()
+{
+  //  keypad_setup(4, 4, rows, cols, values);     // Setup dimensions, keypad arrays
+  customKeypad.begin();
+  pinMode(on_switch_pin, INPUT_PULLUP);
+  pinMode(siren_pin[0], OUTPUT);
+  pinMode(siren_pin[1], OUTPUT);
+  pinMode(ir_input_pin, INPUT_PULLUP);
+
+  current_ir_value = digitalRead(ir_input_pin);
+  previous_ir_value = current_ir_value;
+  siren_off(siren_pin[0]);
+  siren_off(siren_pin[1]);
+  on_prev_state = on_current_state = digitalRead(on_switch_pin);
+  battery_analog_input = analogRead(analogInPin);
+  battery_percentage = map(battery_analog_input, 0, 900, 0, 100);
+  if (battery_percentage > 100)
+  {
+    battery_percentage = 100;
+  }
+  // for (uint8_t i = 0; i < 2; i++)
+}
+uint16_t on_off_counter = 0;
+uint16_t display_on_timeout = 30000;
+unsigned long display_on_timer;
+void gpio_task()
+{
+  on_current_state = digitalRead(on_switch_pin);
+  on_current_state = 0;
+  // if (on_current_state != on_prev_state)
+  //   // reset the debouncing timer
+  current_ir_value = digitalRead(ir_input_pin);
+  if (previous_ir_value != current_ir_value)
+  {
+    previous_ir_value = current_ir_value;
+    is_displayed = 0;
+    DBG_L3(F("IR value changed to "));
+    DBG_L3_PRINTLN(current_ir_value);
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay)
+  {
+    battery_analog_input = analogRead(analogInPin);
+    battery_percentage = map(battery_analog_input, 0, 900, 0, 100);
+    if (battery_percentage > 100)
+    {
+      battery_percentage = 100;
+    }
+    if (on_prev_state != on_current_state)
+    {
+      on_prev_state = on_current_state;
+      if (on_current_state)
+      {
+        if (on_off_counter > 0)
+        {
+          if (lcd_state == LCD_STATE_ON)
+          {
+            lcd_power_off();
+            DBG_L3_PRINTLN(F("LCD_OFF"));
+
+          }
+          else
+          {
+            lcd_state = LCD_STATE_ON;
+            lcd_power_on();
+            if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered)
+            {
+            }
+            else
+            {
+            }
+
+            display_on_timer = millis();
+            DBG_L3_PRINTLN(F("LCD_ON"));
+
+          }
+        }
+        on_off_counter = 0;
+      }
+      else
+      {
+        on_off_counter++;
+      }
+    }
+  }
+
+  // if (b_gun_point_activation_triggerd)
+  //   if (!b_siren_on)
+  //   {
+  //   }
+  customKeypad.tick();
+  while (customKeypad.available())
+  {
+    keypadEvent e = customKeypad.read();
+    DBG_L4((char)e.bit.KEY);
+    if (e.bit.EVENT == KEY_JUST_PRESSED)
+    {
+      prss_time = millis();
+      DBG_L4_PRINTLN(F(" pressed"));
+      if (lcd_state == LCD_STATE_ON)
+      {
+        tone(buzzer_pin, pgm_read_word(&melody[0]), 200);
+        delay(100);
+        noTone(buzzer_pin);
+      }
+    }
+    else if (e.bit.EVENT == KEY_JUST_RELEASED)
+    {
+      time_difference = millis() - prss_time;
+      if (time_difference < 5)
+      {
+        // debounce: ignore very short presses
+        continue;
+      }
+      key = (char)e.bit.KEY;
+      DBG_L4(F("key: "));
+      DBG_L4_PRINTLN(key);
+      // if (lcd_state == LCD_STATE_OFF)
+      display_on_timer = millis();
+      switch (key)
+      {
+      case POWER:
+        // LOCK the safe and off the display
+        break;
+      case MUTE:
+        // toggle the mute setting
+        DBG_L3_PRINTLN(F("MUTE PRESSED!"));
+        b_buzzer_on = 0;
+        door_open_time = millis();
+        break;
+      case LOCK:
+        // LOCK the safe and off the display
+        rels_time = millis();
+        is_displayed = 0;
+        b_command_close_door = 1;
+        DBG_L3_PRINTLN(F("4442"));
+        b_error_in_door_close = 0;
+        display_screen = LOCK_DOOR_STATE;
+        break;
+      default:
+        if (lcd_state == LCD_STATE_ON)
+        {
+          DBG_L4_PRINTLN(F("pressed default case"));
+          rels_time = millis();
+          is_new_key = 1;
+          break;
+        }
+      }
+    }
+  }
+  //  }
+}
+char get_character;
+bool is_new_index()
+{
+  uint8_t temp_key = uint8_t(key) - 48;
+  if (!is_num)
+  {
+    if (prev_key != key || (rels_time - prev_rels_time) > alpha_speed)
+    {
+      prev_rels_time = rels_time;
+      times_prssd = 0;
+      prev_key = key;
+      get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd]);
+      return true;
+    }
+    else if ((rels_time - prev_rels_time) < alpha_speed)
+    {
+      prev_rels_time = rels_time;
+      times_prssd++;
+      if (temp_key && temp_key <= 6)
+      {
+        get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd % 3]);
+      }
+      else
+      {
+        get_character = pgm_read_byte(&num_to_alpha[temp_key][times_prssd % 2]);
+      }
+      return false;
+    }
+  }
+  times_prssd = 0;
+  get_character = key;
+  return true;
+}
+char get_pressed_character()
+{
+  return get_character;
+}
+
+bool b_send_open_door_message = 0;
+bool b_send_close_door_message = 0;
+
+#define OPEN_DOOR_MSG 1
+#define CLOSE_DOOR_MSG 2
+#define GUN_POINT_MSG 3
+#define GUN_POINT_CALL 4
+#define TEMP_ALARM_MSG 5
+#define VIBRATION_ALARM_MSG 6
+#define AUTH_FAIL_MSG 7
+#define DOOR_TIMEOUT_MSG 8
+
+uint8_t type_list[10];
+uint8_t message_details[10];
+uint8_t queue_index = 0;
+
+/***** DC MOTOR SECTION [START] **/
+int dc_motor_pin[2] = {2, 5};
+int sensor_pin[2] = {48, 47};
+int em_lock_control_pin = 6;
+
+int ir_rx_pin = A0;
+
+#define CW 0
+#define CCW 1
+
+bool is_door_closing = 0;
+bool is_door_opening = 0;
+
+bool door_sensor_state[2] = {0, 0};
+bool prev_door_sensor_state[2] = {0, 0};
+
+bool ir_state = 0;
+bool prev_ir_state = 0;
+
+bool b_command_open_door = 0;
+bool b_command_close_door = 0;
+
+void init_dc_motor()
+{
+  // put your setup code here, to run once:
+  pinMode(dc_motor_pin[0], OUTPUT);
+  pinMode(dc_motor_pin[1], OUTPUT);
+  pinMode(sensor_pin[0], INPUT_PULLUP);
+  pinMode(sensor_pin[1], INPUT_PULLUP);
+
+  pinMode(ir_rx_pin, INPUT);
+
+  dc_motor_stop();
+}
+// Helper function to handle door motor stop and error clearing
+inline void stop_door_motor_and_clear_error(bool &is_moving, bool &error_flag)
+{
+  dc_motor_stop();
+  is_moving = 0;
+  if (error_flag)
+  {
+    error_flag = 0;
+    is_displayed = 0;
+  }
+}
+
+// Optimized DC motor task
+void dc_motor_task()
+{
+  // Read IR sensor state (only update if changed)
+  ir_state = digitalRead(ir_rx_pin);
+  if (prev_ir_state != ir_state)
+  {
+    prev_ir_state = ir_state;
+  }
+
+  // Process door sensors (optimized loop with uint8_t)
+  for (uint8_t i = 0; i < 2; i++)
+  {
+    bool current_sensor_state = digitalRead(sensor_pin[i]);
+    
+    // Only process on state change
+    if (current_sensor_state != prev_door_sensor_state[i])
+    {
+      prev_door_sensor_state[i] = current_sensor_state;
+      door_sensor_state[i] = current_sensor_state;
+      
+      // Print door state on sensor change
+      if (i == 0) {
+        DBG_L2_PRINTLN(is_door_open() ? F("DOOR OPEN") : F("DOOR OPEN SENSOR UNHIT"));
+      } else {
+        DBG_L2_PRINTLN(is_door_close() ? F("DOOR CLOSE") : F("DOOR CLOSE SENSOR UNHIT"));
+      }
+    }
+  }
+  
+  // Check if door reached target position while opening
+  if (is_door_opening && is_door_open())
+  {
+    stop_door_motor_and_clear_error(is_door_opening, b_error_in_door_open);
+  }
+  
+  // Check if door reached target position while closing
+  if (is_door_closing && is_door_close())
+  {
+    stop_door_motor_and_clear_error(is_door_closing, b_error_in_door_close);
+  }
+  
+  // Process door commands
+  if (b_command_close_door && is_door_aligned_by_ir())
+  {
+    b_command_close_door = 0;
+    dc_motor_stop();
+    close_door();
+  }
+  
+  if (b_command_open_door)
+  {
+    b_command_open_door = 0;
+    dc_motor_stop();
+    open_door();
+  }
+}
+void dc_motor_stop()
+{
+   digitalWrite(dc_motor_pin[0], 1);
+   digitalWrite(dc_motor_pin[1], 1);
+}
+void dc_motor_on(int direction)
+{
+  if (direction == CW)
+  {
+     DBG_L3_PRINTLN(F("Moving CW"));
+     digitalWrite(dc_motor_pin[0], 0);
+     digitalWrite(dc_motor_pin[1], 1);
+  }
+  else if (direction == CCW)
+  {
+     DBG_L3_PRINTLN(F("Moving CCW"));
+     digitalWrite(dc_motor_pin[0], 1);
+     digitalWrite(dc_motor_pin[1], 0);
+  }
+}
+
+bool is_door_open()
+{
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+  return 1;
+#else
+  return !door_sensor_state[0];
+#endif
+}
+bool is_door_close()
+{
+#ifdef BYPASS_ALL_SENSOR_AND_DOOR_INPUTS
+  return 1;
+#else
+  return !door_sensor_state[1]; // !door_sensor_state[1];
+#endif
+}
+
+void open_door()
+{
+  is_door_opening = 1;
+  dc_motor_on(CW);
+}
+void close_door()
+{
+  is_door_closing = 1;
+  dc_motor_on(CCW);
+}
+/***** DC MOTOR SECTION [END] **/
+/*************** LCD CODE [START] ******************/
+void lcd_init()
+{
+  lcd.noDisplay(); // Turn off the display
+  lcd.begin(16, 2);
+  lcd.display(); // Turn on the display
+  lcd.setCursor(1, 0);
+  LCD_PRINT("BMS SAFE (");
+  lcd.print(battery_percentage);
+  LCD_PRINT("%)");
+  lcd.setCursor(0, 1);
+  if (date < 10)
+    lcd.print("0");
+  lcd.print(date);
+  LCD_PRINT("/");
+
+  if (month < 10)
+    lcd.print("0");
+  lcd.print(month);
+  lcd.print("/");
+
+  lcd.print(year);
+
+  // if (second < 10)
+
+  LCD_PRINT("  ");
+
+  if (hour < 10)
+    lcd.print("0");
+  lcd.print(hour);
+  LCD_PRINT(":");
+
+  if (minute < 10)
+    lcd.print("0");
+  lcd.print(minute);
+
+
+  // TODO: PRINT TIME AND DATE
+  delay(500);
+  lcd.setCursor(0, 1);
+}
+void lcd_init_screen()
+{
+  lcd.noDisplay(); // Turn off the display
+  lcd.begin(16, 2);
+  lcd.display(); // Turn on the display
+  lcd.setCursor(1, 0);
+  LCD_PRINT("   BMS SAFE");
+  lcd.setCursor(0, 1);
+  LCD_PRINT("....WELCOME....");
+  if (b_sd_card_not_initiated)
+  {
+    delay(1000);
+    lcd.setCursor(0, 0);
+    LCD_PRINT("  NO SD CARD ");
+    lcd.setCursor(0, 1);
+    LCD_PRINT("  ATTACHED!!");
+  }
+
+  /*
+    if (date < 10)
+      lcd.print("0");
+    lcd.print(date);
+    lcd.print("/");
+
+    if (month < 10)
+      lcd.print("0");
+    lcd.print(month);
+    lcd.print("/");
+
+    lcd.print(year);
+
+    // if (second < 10)
+
+    lcd.print("  ");
+
+    if (hour < 10)
+      lcd.print("0");
+    lcd.print(hour);
+    lcd.print(":");
+
+    if (minute < 10)
+      lcd.print("0");
+    lcd.print(minute);
+  */
+  delay(1000);
+}
+void my_delay(uint8_t unit)
+{
+  delay(unit * 1000);
+}
+void jump_to_master_main()
+{
+  my_delay(3);
+  is_displayed = 0;
+  DBG_L3_PRINTLN(F("MASTER_MAIN"));
+  display_screen = MASTER_MAIN;
+}
+void jump_to_user_main()
+{
+  my_delay(3);
+  is_displayed = 0;
+  DBG_L3_PRINTLN(F("USER_MAIN"));
+  display_screen = USER;
+}
+void door_open_close_fsm()
+{
+  // @TODO: Write the logic for Open Close Door FSM
+  // @TODO: Door OPEN count to be stored in FSM
+}
+void temperature_sensor_fsm()
+{
+  // @TODO:
+}
+void vibration_sensor_fsm()
+{
+  // @TODO:
+}
+
+#define USER_NO_REGISTERED 1              //"User is not registered!"
+#define PW_LENGH_IS_NOT_IN_LIMIT 2        //"Password length is greater than 15 or less than 4"
+#define PW_CHANGED 3                      //"Password Changed!!"
+#define PW_IS_NO_VALID 4                  //"Password is not valid!!"
+#define PARA_MISSING 5                    //"Parameters are missing!!"
+#define USER_REMOVED 6                    //"User Removed!"
+#define USER_CREATED 7                    //"User Created!"
+#define USER_IS_ALREADY_REGISTERD 8       //"User is already registered"
+#define MOBILE_NUM_LEN_IS_INVALID 9       //"Mobile number length is less or more"
+#define PW_IS_NOT_CONFIGURED 10           //"Password is not configured!"
+#define MOBILE_NUMBER_IS_NOT_REGISTERD 11 //"Mobile Number is not registered"
+#define MASTER_RESET_DONE 12
+#define PARA_INVALID 13
+#define IN_OUT_TIME_UPDATED 14
+#define NO_ACCESS_ALLOWED 15
+#define DOOR_UNLOCK_CMD_ACCEPTED 16
+#define DOOR_LOCK_CMD_ACCEPTED 17
+#define USER_CREATED_ACK 18
+#define OTP_MATCHED 19
+#define OTP_NOT_MATCHED 20
+
+#define RECEIVED_MOBILE_NUMBER_INDEX (MAX_NUM_OF_USERS + 1)
+#define MASTER_USER_ID 0
+
+
+
+#define GPA_DO_NOTHING 0
+#define GPA_SEND_MESSAGE 1
+#define GPA_CALL 2
+uint8_t gpa_state = GPA_SEND_MESSAGE;
+
+uint8_t current_gpa_user_id = 0;
+
+const int vibration_sensor_pin = 43;
+
+bool vibration_sensor_pin_status = 0;
+bool prev_vibration_sensor_pin_status = 0;
+bool vibration_started = 0;
+
+unsigned long vibration_read_timer;
+const uint16_t vibration_read_time_interval = 10000UL;  // Constant (saves 2 bytes RAM)
+uint8_t vibration_change_counter = 0;  // Changed from uint16_t (saves 1 byte) - max value is 15
+
+uint8_t temperature_counter = 0;
+
+// PROGMEM strings for temp_task (saves ~100 bytes RAM)
+const char TEMP_STR_VIB_START[] PROGMEM = "Vibration Started!";
+const char TEMP_STR_VIB_COUNTER[] PROGMEM = "Vibration_counter -->>";
+const char TEMP_STR_VIB_ALARM[] PROGMEM = "Vibration alarm Triggered!!";
+const char TEMP_STR_VIB_STOP[] PROGMEM = "Vibration Stopped!";
+const char TEMP_STR_TEMP_VALUE[] PROGMEM = "Temperature value is : ";
+
+void temp_sen_init()
+{
+  sensors.begin();
+  pinMode(vibration_sensor_pin, OUTPUT);
+}
+void read_temperature()
+{
+  sensors.requestTemperatures(); // Send the command to get temperature readings
+  temperature_value = sensors.getTempCByIndex(0);
+  temperature_read_timeout = millis();
+}
+
+// Helper function to trigger alarm (reduces code duplication)
+inline void trigger_alarm(bool &alarm_flag, uint8_t &counter)
+{
+  alarm_flag = 1;
+  generate_random_otp();
+  lcd_power_off();
+  siren_on(siren_pin[0]);
+  siren_on(siren_pin[1]);
+  counter = 0;
+}
+
+// Helper to print PROGMEM string
+inline void print_temp_msg_P(const char* msg)
+{
+  char buffer[30];
+  strcpy_P(buffer, msg);
+  DBG_L2_PRINTLN(buffer);
+}
+
+// Optimized temperature & vibration sensor task
+void temp_task()
+{
+  // Cache millis() once (avoid multiple calls)
+  unsigned long current_millis = millis();
+  
+  // --- VIBRATION SENSOR HANDLING ---
+  vibration_sensor_pin_status = digitalRead(vibration_sensor_pin);
+  
+  // Only process on state change
+  if (prev_vibration_sensor_pin_status != vibration_sensor_pin_status)
+  {
+    prev_vibration_sensor_pin_status = vibration_sensor_pin_status;
+    
+    if (vibration_sensor_pin_status)
+    {
+      // Start tracking vibration on first detection
+      if (vibration_change_counter < 2)
+      {
+        vibration_started = 1;
+        print_temp_msg_P(TEMP_STR_VIB_START);
+      }
+      
+      // Update timer if vibration is being tracked
+      if (vibration_started)
+      {
+        vibration_read_timer = current_millis;
+      }
+      
+      vibration_change_counter++;
+      
+      //#ifdef DEBUG
+      Serial.print(F("Vibration_counter -->> "));
+      Serial.println(vibration_change_counter);
+      //#endif
+      
+      // Trigger alarm after 15 vibrations
+      if (vibration_change_counter > 15)
+      {
+        vibration_started = 0;
+        trigger_alarm(b_vibration_alarm_triggered, vibration_change_counter);
+        print_temp_msg_P(TEMP_STR_VIB_ALARM);
+        // Activate gun point automation if idle
+          if (gpa_state == GPA_DO_NOTHING)
+          {
+            gpa_state = GPA_SEND_MESSAGE;
+          }
+      }
+    }
+  }
+  
+  // Check for vibration timeout (no vibration for 10 seconds)
+  if (vibration_started && (current_millis - vibration_read_timer > vibration_read_time_interval))
+  {
+    vibration_started = 0;
+    vibration_change_counter = 0;
+    print_temp_msg_P(TEMP_STR_VIB_STOP);
+  }
+  
+  // --- TEMPERATURE SENSOR HANDLING ---
+  if (current_millis - temperature_read_timeout > temperature_read_time_interval)
+  {
+    read_temperature();
+    
+    // Only process if temperature changed
+    if (prev_temperature_value != temperature_value)
+    {
+      prev_temperature_value = temperature_value;
+      
+      if (temperature_value > TEMPERATURE_THRESHOLD)
+      {
+        // Increment counter (capped at 200 to prevent overflow)
+        if (temperature_counter < 200)
+          temperature_counter++;
+        
+        // Trigger alarm after 3 consecutive high readings
+        if (temperature_counter > 3)
+        {
+          trigger_alarm(b_temperature_alarm_triggerd, temperature_counter);
+          
+          // Activate gun point automation if idle
+          if (gpa_state == GPA_DO_NOTHING)
+          {
+            gpa_state = GPA_SEND_MESSAGE;
+          }
+        }
+      }
+      else
+      {
+        // Reset counter only if alarm not already triggered
+        if (!b_temperature_alarm_triggerd)
+          temperature_counter = 0;
+      }
+    }
+    
+    // Print temperature (using F() macro to save RAM)
+    DBG_L3(F("Temperature value is : "));
+    DBG_L3_PRINTLN(temperature_value);
+  }
+}
+// Gun point activation FSM - sends messages and calls for alarms
+void gun_point_activation_fsm()
+{
+  if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered)
+  {
+    switch (gpa_state)
+    {
+    case GPA_DO_NOTHING:
+      break;
+      
+    case GPA_SEND_MESSAGE:
+      // Only add messages if queue is empty (queue_index < 1 means queue is empty)
+      if (queue_index < 1)
+      {
+        for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+        {
+          if (b_temperature_alarm_triggerd)
+          {
+            if (is_password_configured[i])
+            {
+              update_queue(TEMP_ALARM_MSG, i);
+            }
+          }
+          else if (b_vibration_alarm_triggered)
+          {
+            if (is_password_configured[i])
+            {
+              update_queue(VIBRATION_ALARM_MSG, i);
+            }
+          }
+          else
+          {
+            // Gun point activation - exclude triggering user
+            if (is_password_configured[i] && (user_id - 1) != i)
+            {
+              update_queue(GUN_POINT_MSG, i);
+            }
+          }
+        }
+        gpa_state = GPA_CALL;
+        break;
+      }
+      break;
+      
+    case GPA_CALL:
+      // Only add calls if queue is empty (queue_index < 1 means queue is empty)
+      if (queue_index < 1)
+      {
+        for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+        {
+          if (b_temperature_alarm_triggerd)
+          {
+            // Temperature alarm - call all users
+            if (is_password_configured[i])
+            {
+              update_queue(GUN_POINT_CALL, i);
+            }
+          }
+          else
+          {
+            // Vibration or gun point - exclude triggering user
+            if (is_password_configured[i] && (user_id - 1) != i)
+            {
+              update_queue(GUN_POINT_CALL, i);
+            }
+          }
+        }
+        gpa_state = GPA_SEND_MESSAGE;
+      }
+      break;
+    }
+  }
+}
+#define MASTER_PW_LEN 10
+uint8_t master_reset_pw[MASTER_PW_LEN] = {'9', '9', '2', '5', '3', '6', '6', '1', '1', '1'};
+
+// Helper function to check if today is a holiday (blocks all access)
+inline bool is_holiday_blocking_access()
+{
+  update_date_time_from_rtc();
+  if (is_holiday(date, month, year))
+  {
+    DBG_L2_PRINTLN(F("Holiday - No Access Allowed!"));
+    return true;
+  }
+  return false;
+}
+
+bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
+{
+  // First check if today is a holiday - if so, deny access
+  if (is_holiday_blocking_access())
+  {
+    return 0;
+  }
+  
+  if (is_in_out_time_configured[_user_id])
+  {
+    hour = rtc.hour();
+    minute = rtc.minute();
+    uint8_t in_time = in_time_hour[_user_id] * 100 + in_time_minute[_user_id];
+    uint8_t out_time = out_time_hour[_user_id] * 100 + out_time_minute[_user_id];
+
+    uint8_t now_time = hour * 100 + minute;
+
+    if (now_time >= in_time && now_time <= out_time)
+    {
+      DBG_L2_PRINTLN(F("Access Allowed!"));
+      return 1;
+    }
+    else
+    {
+      DBG_L2_PRINTLN(F("No Access Allowed!"));
+      return 0;
+    }
+  }
+  else
+  {
+    return 1;
+  }
+}
+bool b_access_allowed = 0;
+
+void check_if_door_access_is_allowed(uint8_t user_id)
+{
+  is_displayed = 0;
+  pass_length = 0;
+  
+  // Check if door is aligned first
+  if (!is_door_aligned_by_ir())
+  {
+    lcd.clear();
+    lcd.setCursor(5, 0);
+    LCD_PRINT("Sensor");
+    lcd.setCursor(1, 1);
+    LCD_PRINT("Not Aligned!!");
+    is_displayed = 0;
+    delay(2000);
+    b_command_close_door = 0;
+    b_command_open_door = 0;
+    dc_motor_stop();
+    display_screen = MAIN;
+    pass_length = 0;
+    return 0;
+  }
+
+  // Check if today is a holiday - blocks all access
+  if (is_holiday_blocking_access())
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    LCD_PRINT("HOLIDAY - NO");
+    lcd.setCursor(0, 1);
+    LCD_PRINT("ACCESS ALLOWED!");
+    is_displayed = 0;
+    delay(2000);
+    display_screen = MAIN;
+    pass_length = 0;
+    return 0;
+  }
+
+  // Check time slot restrictions
+  if (check_if_user_is_allowed_in_time_slot(user_id))
+  {
+    b_access_allowed = 1;
+  }
+  
+  if (b_access_allowed)
+  {
+    door_open_count = door_open_count + 1;
+    write_door_open_count_to_eeprom(door_open_count);
+    if (user_id == 1)
+    {
+      DBG_L3_PRINTLN(F("MASTER_MAIN"));
+      display_screen = MASTER_MAIN;
+      b_command_open_door = 1;
+    }
+    else
+    {
+      DBG_L3_PRINTLN(F("USER"));
+      display_screen = USER;
+      b_command_open_door = 1;
+    }
+    return 1;
+  }
+  else
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    LCD_PRINT("Invld Password!!");
+    is_displayed = 0;
+    delay(1000);
+    display_screen = MAIN;
+    pass_length = 0;
+    return 0;
+  }
+}
+#define FINGERPRINT_FSM_STATE_DEFAULT           1
+#define FINGERPRINT_FSM_STATE_WRONG_MASTER      2
+#define FINGERPRINT_FSM_STATE_ENTER_USER        3
+#define FINGERPRINT_FSM_STATE_WRONG_USER        4
+#define FINGERPRINT_FSM_STATE_DOOR_UNLOCKED     5
+
+uint8_t fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+int8_t first_user_verified =0;
+uint8_t user_bio_auth_fail_count = 0;
+
+// SMS dual authentication state for UNLOCK command
+bool sms_master_verified = false;
+unsigned long sms_master_verified_time = 0;
+#define SMS_MASTER_VERIFY_TIMEOUT 60000  // 60 seconds timeout for master verification
+
+// SMS dual authentication state
+// #define SMS_MASTER_VERIFY_TIMEOUT 60000  // 60 seconds timeout for master verification
+bool verify_dual_password(){
+  uint8_t user_id_length = 0;
+  user_id = parse_user_id_from_password(password, pass_length, &user_id_length);
+  if (user_id == 0) return 0; // Invalid user ID format
+  
+  if ((first_user_verified || user_id == 1) && is_password_valid(user_id, &password[user_id_length], pass_length - user_id_length))
+  {
+    if(first_user_verified){
+      if(user_id == 1){
+        // Master user - allow access to menu (no door opening)
+        DBG_L3_PRINTLN(F("MASTER_INPUT_STATE"));
+        display_screen = MASTER_INPUT_STATE;
+        is_displayed = 0;
+        user_bio_auth_fail_count = 0; // Reset on successful authentication
+        first_user_verified = 0; // reset first user verified flag as it's just open master menu
+      }else{
+        // Regular user - check holiday before allowing door access
+        DBG_L2(F("USER ID -- >"));
+        DBG_L2_PRINTLN(user_id);
+        
+        // Holiday check - blocks door access on holidays
+        if (is_holiday_blocking_access())
+        {
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          LCD_PRINT("HOLIDAY - NO");
+          lcd.setCursor(0, 1);
+          LCD_PRINT("ACCESS ALLOWED!");
+          is_displayed = 0;
+          delay(2000);
+          display_screen = MAIN;
+          pass_length = 0;
+          first_user_verified = 0;
+          user_bio_auth_fail_count = 0;
+          return 0;
+        }
+        
+        // Check door access (includes time slot check)
+        check_if_door_access_is_allowed(user_id);
+        first_user_verified = 0;
+        user_bio_auth_fail_count = 0; // Reset on successful authentication
+      }
+    }else if(user_id == 1){ 
+      // Master user entering password - proceed to user password/bio screen
+      first_user_verified = 1;
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      LCD_PRINT("USER PASS/BIO :");
+      pass_length = 0;
+      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
+      memset(password, '\0', 15);
+      user_id = 0; // Invalid user ID
+      user_bio_auth_fail_count = 0; // Reset when entering USER PASS/BIO screen
+    }
+  }
+  else
+  {
+    DBG_L2(F("USER ID is "));
+    DBG_L2_PRINTLN(user_id);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    LCD_PRINT("Invld Password!!");
+    is_displayed = 0;
+    
+    // Send alert for invalid password attempt - queue for users 1 to 5 (indices 0 to 4) if configured
+    for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+    {
+      if (is_password_configured[idx])
+      {
+        update_queue(AUTH_FAIL_MSG, idx);
+      }
+    }
+    delay(1000);
+    
+    // Check if this is a failure on USER PASS/BIO screen
+    if (first_user_verified == 1) {
+      user_bio_auth_fail_count++;
+      if (user_bio_auth_fail_count >= 1) {
+        // Send alert to users 1 to 5 (indices 0 to 4) if configured
+        for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+        {
+          if (is_password_configured[idx])
+          {
+            update_queue(AUTH_FAIL_MSG, idx);
+          }
+        }
+        user_bio_auth_fail_count = 0; // Reset after sending alert
+        // Return to MAIN screen after 2nd failure
+        display_screen = MAIN;
+        pass_length = 0;
+        first_user_verified = 0;
+        memset(password, '\0', 15);
+      } else {
+        // Stay on USER PASS/BIO screen for retry
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        LCD_PRINT("USER PASS/BIO :");
+        pass_length = 0;
+        memset(password, '\0', 15);
+        is_displayed = 1;
+      }
+    } else {
+      // Return to MAIN screen if failure on MAIN screen
+      display_screen = MAIN;
+      pass_length = 0;
+      first_user_verified = 0;
+    }
+    
+    return 0;
+  }
+}
+bool verify_password()
+{
+  DBG_L4_PRINTLN(password);
+  if (password[0] == master_reset_pw[0] && pass_length == MASTER_PW_LEN)
+  {
+    bool b_pw_matched = 1;
+    for (uint8_t i = 0; i < MASTER_PW_LEN; i++)
+    {
+      if (password[i] != master_reset_pw[i])
+      {
+        b_pw_matched = 0;
+      }
+    }
+    if (b_pw_matched)
+    {
+      for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+      {
+        if (check_if_password_is_configured(i))
+        {
+          clear_password_in_eeprom(i);
+        }
+        wdt_reset();
+      }
+    }
+    write_door_open_count_to_eeprom(0);
+    wdt_reset();
+    update_eeprom_data_at_index(0, _mobile_number, _password, 4);
+    update_data_from_eeprom();
+    wdt_reset();
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    LCD_PRINT("Lock Reseted!!");
+    is_displayed = 0;
+    delay(1000);
+    display_screen = LOCK_DOOR_STATE;
+    pass_length = 0;
+    return 1;
+  }
+  uint8_t user_id_length = 0;
+  user_id = parse_user_id_from_password(password, pass_length, &user_id_length);
+  if (user_id == 0) return 0; // Invalid user ID format
+  
+  if (is_password_valid(user_id, &password[user_id_length], pass_length - user_id_length))
+  {
+    // TODO: Unlock the safe
+    DBG_L2(F("USER ID -- >"));
+    DBG_L2_PRINTLN(user_id);
+    // call funtion
+    check_if_door_access_is_allowed(user_id);
+  }
+  else
+  {
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    LCD_PRINT("Invld Password!!");
+    is_displayed = 0;
+    delay(1000);
+    display_screen = LOCK_DOOR_STATE;
+    pass_length = 0;
+    return 0;
+  }
+}
+uint8_t otp[6];
+uint8_t otp_length = 0;
+uint8_t generated_otp[6] = {
+    random(0, 9),
+    random(0, 9),
+    random(0, 9),
+    random(0, 9),
+    random(0, 9),
+    random(0, 9),
+};
+
+uint8_t master_otp[6] = {
+    4, 5, 5, 5, 5, 6};
+
+char char_generated_otp[6];
+bool b_otp_not_matched = 0;
+void generate_random_otp()
+{
+  uint16_t temp = (minute + (hour * 10)) / 10;
+  if (temp > 10)
+  {
+    temp = temp / 10;
+    if (temp > 10)
+    {
+      temp = temp / 10;
+      if (temp > 10)
+      {
+        temp = temp / 10;
+      }
+    }
+  }
+  for (uint8_t i = 0; i < 6; i++)
+  {
+    generated_otp[i] = random(temp, 9);
+    char_generated_otp[i] = generated_otp[i] + '0';
+  }
+  DBG_L3(F("Generated OTP : "));
+  DBG_L3_PRINTLN((char_generated_otp));
+}
+void input_otp_fsm()
+{
+
+  if (!is_displayed)
+  {
+    is_displayed = 1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    // if (input_mobile_number_count == 0)
+    // else
+    lcd.setCursor(11, 0);
+    for (uint8_t i = 0; i < otp_length; i++)
+    {
+      lcd.setCursor(i, 1);
+      lcd.print(otp[i]);
+    }
+  }
+  else
+  {
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      switch (key)
+      {
+      case CANCEL:
+        if (otp_length == 0)
+        {
+          is_displayed = 0;
+          otp_length = 0;
+          memset(otp, '\0', sizeof(otp));
+        }
+        else
+        {
+          is_displayed = 0;
+          otp_length = 0;
+          memset(otp, '\0', sizeof(otp));
+        }
+        break;
+      case ENTER:
+        b_otp_not_matched = 0;
+        if (otp_length == 6)
+        {
+          for (uint8_t i = 0; i < 6; i++)
+          {
+            DBG_L4(otp[i]);
+            DBG_L4(F(":"));
+            DBG_L4(generated_otp[i]);
+            DBG_L4_PRINTLN(F(">"));
+            if (otp[i] != generated_otp[i])
+            {
+              b_otp_not_matched = 1;
+            }
+          }
+        }
+        else
+        {
+          b_otp_not_matched = 1;
+        }
+        if (b_otp_not_matched)
+        {
+          b_otp_not_matched = 0;
+          for (uint8_t i = 0; i < 6; i++)
+          {
+            if (otp[i] != master_otp[i])
+            {
+              b_otp_not_matched = 1;
+            }
+          }
+        }
+        if (!b_otp_not_matched)
+        {
+          DBG_L3_PRINTLN(F("ENTER-------2---------"));
+          b_gun_point_activation_triggerd = 0;
+          b_vibration_alarm_triggered = 0;
+          b_temperature_alarm_triggerd = 0;
+          b_otp_not_matched = 0;
+          siren_off(siren_pin[0]);
+          siren_off(siren_pin[1]);
+          display_screen = MAIN;
+          otp_length = 0;
+          memset(otp, '\0', sizeof(otp));
+          is_displayed = 0;
+          break;
+        }
+        else
+        {
+          b_otp_not_matched = 0;
+          DBG_L3_PRINTLN(F("ENTER-------3---------"));
+          otp_length = 0;
+          memset(otp, '\0', sizeof(otp));
+          is_displayed = 0;
+          break;
+        }
+        break;
+      default:
+        if (otp_length < 16)
+        {
+          otp_length += uint8_t(is_new_index());
+          uint8_t temp_key = uint8_t(key) - 48;
+
+          otp[otp_length - 1] = temp_key;
+          is_displayed = 0;
+        }
+        break;
+      }
+    }
+  }
+}
+// #define FINGERPRINT_FSM_STATE_DEFAULT           1
+// #define FINGERPRINT_FSM_STATE_WRONG_MASTER      2
+// #define FINGERPRINT_FSM_STATE_ENTER_USER        3
+// #define FINGERPRINT_FSM_STATE_WRONG_USER        4
+// #define FINGERPRINT_FSM_STATE_DOOR_UNLOCKED     5
+
+void fingerprint_manager_fsm(){
+  int8_t fingerprint_id; // Declare once at function level
+  switch(fingerprint_manager_fsm_state){
+    case  FINGERPRINT_FSM_STATE_DEFAULT:
+        fingerprint_id = getFingerprintID();
+        if (fingerprint_id != -1 && fingerprint_id <= MAX_NUM_OF_USERS ){
+          user_id = (uint8_t)fingerprint_id;
+          if((user_id - 1) == 0){
+            fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
+            is_displayed = 1;
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("USER PASS/BIO :");
+            first_user_verified = 1;
+            user_bio_auth_fail_count = 0; // Reset when entering USER PASS/BIO screen
+            delay(2000);
+          }else{
+            fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_MASTER;
+          }
+        }else if(fingerprint_id != -1){
+            fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_MASTER;
+        }
+      break;
+    case FINGERPRINT_FSM_STATE_WRONG_MASTER:
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("MASTER FINGERPRNT");
+      lcd.setCursor(0, 1);
+      lcd.print("NOT MATCHED!");
+      user_id = 0; // Invalid user ID
+      
+      // Send alert for invalid master fingerprint attempt - queue for users 1 to 5 (indices 0 to 4) if configured
+      for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+      {
+        if (is_password_configured[idx])
+        {
+          update_queue(AUTH_FAIL_MSG, idx);
+        }
+      }
+      
+      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+      delay(2000);
+      is_displayed = 0;
+      break;
+    case FINGERPRINT_FSM_STATE_ENTER_USER:
+      fingerprint_id = getFingerprintID();
+      if (fingerprint_id != -1 && fingerprint_id <= MAX_NUM_OF_USERS){
+        user_id = (uint8_t)fingerprint_id;
+        if( check_if_password_is_configured(user_id - 1) && (user_id -1 )!=0){
+          is_displayed = 1;
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("USER FINGERPRNT");
+          lcd.setCursor(0, 1);
+          lcd.print("MATCHED!!");
+          delay(2000);
+          is_displayed = 0;
+          fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DOOR_UNLOCKED;
+          user_bio_auth_fail_count = 0; // Reset on successful authentication
+          break;
+        }else{
+          fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_USER;
+          break;
+        }
+      }else if(fingerprint_id != -1){
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_WRONG_USER;
+        break;
+      }
+       break;
+    case FINGERPRINT_FSM_STATE_WRONG_USER:
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("USER FINGERPRNT");
+      lcd.setCursor(0, 1);
+      lcd.print("NOT MATCHED!");
+      user_id = 0; // Invalid user ID
+      
+      // Track fingerprint failures and send alert
+      user_bio_auth_fail_count = user_bio_auth_fail_count + 2;
+      // if (user_bio_auth_fail_count >= 2) {
+      //   // Send alert to master user
+      
+      // Track failure and send alert if needed
+      if (user_bio_auth_fail_count >= 2) {
+        // Send alert to users 1 to 5 (indices 0 to 4) if configured
+        for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+        {
+          if (is_password_configured[idx])
+          {
+            update_queue(AUTH_FAIL_MSG, idx);
+          }
+        }
+        user_bio_auth_fail_count = 0; // Reset after sending alert
+        // Return to MAIN screen after 2nd failure
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+        first_user_verified = 0;
+        display_screen = MAIN;
+        is_displayed = 0;
+        delay(2000);
+      } else {
+        // Stay on USER PASS/BIO screen for retry
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("USER PASS/BIO :");
+        is_displayed = 1;
+      }
+      break;
+    case FINGERPRINT_FSM_STATE_DOOR_UNLOCKED:
+      DBG_L2(F("USER ID Found at ID "));
+      DBG_L2_PRINTLN(user_id);
+      
+      // Holiday check - blocks door access on holidays
+      if (is_holiday_blocking_access())
+      {
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        LCD_PRINT("HOLIDAY - NO");
+        lcd.setCursor(0, 1);
+        LCD_PRINT("ACCESS ALLOWED!");
+        is_displayed = 0;
+        delay(2000);
+        display_screen = MAIN;
+        first_user_verified = 0;
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+        break;
+      }
+      
+      check_if_door_access_is_allowed(user_id);
+      first_user_verified = 0;
+      fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+      user_bio_auth_fail_count = 0; // Reset on successful authentication
+      break;
+  }
+  /*
+  user_id = getFingerprintID();
+  if (user_id != -1 && user_id <= MAX_NUM_OF_USERS && check_if_password_is_configured(user_id - 1))
+  {
+    DBG_L2(F("USER ID Found at ID "));
+    DBG_L2_PRINTLN(user_id);
+    check_if_door_access_is_allowed(user_id);
+  }
+  */
+}
+void password_input_fsm()
+{
+  if (!is_displayed)
+  {
+    is_displayed = 1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    switch (display_screen)
+    {
+    case MAIN:
+      lcd.print("PASSWORD:");
+      break;
+    case MASTER_PASSWORD:
+      lcd.print("MASTER PW:");
+      break;
+    case USER_PASSWORD:
+      lcd.setCursor(0, 0);
+      LCD_PRINT("USER-");
+      if (user_id < 10) {
+        lcd.print("0");
+      }
+      lcd.print(user_id);
+      LCD_PRINT(" PW ");
+      break;
+    default:
+      break;
+    }
+    lcd.setCursor(11, 0);
+    if (is_num)
+    {
+      lcd.print("NUM");
+    }
+    else
+    {
+      lcd.print("ALPHA");
+    }
+    for (uint8_t i = 0; i < pass_length; i++)
+    {
+      lcd.setCursor(i, 1);
+      lcd.print('*');
+    }
+  }
+  else
+  {
+    fingerprint_manager_fsm();
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      switch (key)
+      {
+      case ALPHA_NUM:
+        is_num = !is_num;
+        is_displayed = 0;
+        break;
+      case CANCEL:
+        is_displayed = 0;
+        if (pass_length == 0)
+        {
+          if (display_screen == MASTER_PASSWORD)
+          {
+            display_screen = MASTER_INPUT_STATE;
+          }
+          else if (display_screen == USER_PASSWORD)
+          {
+            display_screen = USER;
+          }
+        }
+        is_displayed = 0;
+        pass_length = 0;
+        memset(password, '\0', 15);
+        user_id = 0; // Invalid user ID
+        first_user_verified = 0;
+        fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DEFAULT;
+        user_bio_auth_fail_count = 0; // Reset when canceling from USER PASS/BIO screen
+        break;
+      case ENTER:
+        if (pass_length >= 4 && pass_length <= 16)
+        {
+          is_displayed = 0;
+          // Check for password validation
+          DBG_L4_PRINTLN(password);
+          switch (display_screen)
+          {
+          case MAIN:
+            verify_dual_password();
+            if (time_difference > GUN_POINT_PRESS_TIMEOUT)
+            {
+              b_gun_point_activation_triggerd = 1;
+              generate_random_otp();
+              gpa_state = GPA_SEND_MESSAGE;
+              lcd.clear();
+              lcd_power_off();
+              lcd_power_on();
+              DBG_L1_PRINTLN(F("GUN POINT ACTIVATED "));
+              // if (display_screen == MASTER_MAIN)
+              // else if (display_screen == USER)
+            }
+            break;
+          case MASTER_PASSWORD:
+            save_password_to_eeprom(0, &password[0], pass_length);
+            is_displayed = 1;
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("MASTER PW:");
+            lcd.setCursor(0, 1);
+            lcd.print("PW UPDATED!!");
+            my_delay(1);
+            pass_length = 0;
+            memset(password, '\0', 15);
+            is_displayed = 0;
+            display_screen = MASTER_MAIN;
+
+            break;
+          case USER_PASSWORD:
+            save_password_to_eeprom(user_id - 1, &password[0], pass_length);
+            is_displayed = 1;
+            lcd.setCursor(0, 1);
+            lcd.print("PW UPDATED!!");
+            my_delay(1);
+            pass_length = 0;
+            memset(password, '\0', 15);
+            is_displayed = 0;
+            display_screen = USER_INPUT_STATE;
+            break;
+          default:
+            break;
+          }
+        }
+        else
+        {
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("Password Short!");
+          is_displayed = 0;
+          delay(1000);
+        }
+        break;
+      default:
+        pass_length += uint8_t(is_new_index());
+        lcd.setCursor(pass_length - 1, 1);
+        lcd.print(String(get_pressed_character()));
+        delay(400);
+        lcd.setCursor(pass_length - 1, 1);
+        lcd.print('*');
+
+        password[pass_length - 1] = char(get_pressed_character());
+        break;
+      }
+    }
+  }
+}
+
+uint8_t date_time[13];
+uint8_t date_time_len = 0;
+uint8_t date_time_cursor_index = 0;
+void date_time_input_fsm()
+{
+  if (!is_displayed)
+  {
+    is_displayed = 1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("HHMMSS  DD/MM/YY");
+    lcd.setCursor(0, 1);
+    date_time_cursor_index = 0;
+    for (uint8_t i = 0; i < date_time_len; i++)
+    {
+      if (i == 6)
+      {
+        date_time_cursor_index = date_time_cursor_index + 2;
+        lcd.setCursor(date_time_cursor_index++, 1);
+        lcd.print(date_time[i]);
+      }
+      else if (i == 8 || i == 10)
+      {
+        lcd.setCursor(date_time_cursor_index++, 1);
+        lcd.print("/");
+
+        lcd.setCursor(date_time_cursor_index++, 1);
+        lcd.print(date_time[i]);
+      }
+      else
+      {
+        lcd.setCursor(date_time_cursor_index++, 1);
+        lcd.print(date_time[i]);
+      }
+      // if (i == 6)
+      //   if (date_time[date_time_len] == 1)
+      //   {
+      //   }
+      //   else // if (date_time[date_time_len - 1] == 2)
+      //   {
+      //   }
+      // else
+    }
+  }
+  else
+  {
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      switch (key)
+      {
+      case CANCEL:
+        if (date_time_len == 0)
+        {
+          pass_length = 0;
+          is_displayed = 0;
+          display_screen = MASTER_INPUT_STATE;
+        }
+        else
+        {
+          is_displayed = 0;
+          date_time_len = 0;
+          memset(date_time, '\0', 13);
+        }
+        break;
+      case ENTER:
+        // if (date_time_len >= 12)
+        if (date_time_len == 12)
+        {
+          if (validate_date_and_time((date_time[4] * 10 + date_time[5]), (date_time[2] * 10 + date_time[3]), (date_time[0] * 10 + date_time[1]),
+                                     (date_time[6] * 10 + date_time[7]), (date_time[8] * 10 + date_time[9]), (date_time[10] * 10 + date_time[11])))
+          {
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("  DATE & TIME  ");
+            lcd.setCursor(0, 1);
+            lcd.print("SET SUCCESSFULLY");
+            //@TODO: RTC time set function to be called
+            my_delay(3);
+            display_screen = MASTER_MAIN;
+            is_displayed = 0;
+          }
+          else
+          {
+            memset(date_time, '\0', 13);
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("  DATE & TIME  ");
+            lcd.setCursor(0, 1);
+            lcd.print("INVALID DATE TIME!!");
+            //@TODO: RTC time set function to be called
+            my_delay(3);
+            is_displayed = 0;
+          }
+        }
+        else
+        {
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("ADD ALL DETAILS!");
+          is_displayed = 0;
+          delay(1000);
+        }
+        break;
+      default:
+        bool is_valid_input = is_new_index();
+        if (is_valid_input)
+        {
+          uint8_t temp_key = uint8_t(key) - 48;
+
+          if (date_time_len < 12)
+          {
+            date_time[date_time_len] = temp_key;
+            date_time_len++;
+          }
+          is_displayed = 0;
+        }
+        /*
+        date_time[date_time_len - 1] = char(get_pressed_character());
+        DBG_L4(date_time);
+        if (date_time_len == 7)
+        {
+          if (!(((uint8_t)(date_time[date_time_len - 1]) - 48) == 1 || ((uint8_t)(date_time[date_time_len - 1]) - 48) == 2))
+          {
+            date_time_len--;
+            DBG_L3_PRINTLN(F("Ignoring input for AM & PM "));
+            is_displayed = 1;
+          }
+        }
+        else
+        {
+          is_displayed = 0;
+        }
+        */
+        break;
+      }
+    }
+  }
+}
+
+char input_mobile_number[10];
+uint8_t input_mobile_number_length = 0;
+uint8_t input_mobile_number_count = 0;
+char prev_input_mobile_number[10];
+bool b_mobile_number_not_matched = 0;
+
+void mobile_number_input_fsm(uint8_t id)
+{
+  if (!is_displayed)
+  {
+    is_displayed = 1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    if (input_mobile_number_count == 0)
+    {
+      lcd.print("MOBILE NUMBER :");
+    }
+    else
+    {
+      lcd.print("RECONFIRM :");
+    }
+    lcd.setCursor(11, 0);
+    for (uint8_t i = 0; i < input_mobile_number_length; i++)
+    {
+      lcd.setCursor(i, 1);
+      lcd.print(input_mobile_number[i]);
+    }
+  }
+  else
+  {
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      switch (key)
+      {
+      case CANCEL:
+        if (input_mobile_number_length == 0)
+        {
+          is_displayed = 0;
+          input_mobile_number_count = 0;
+          display_screen = MASTER_INPUT_STATE;
+          memset(input_mobile_number, '\0', 10);
+        }
+        else
+        {
+          is_displayed = 0;
+          input_mobile_number_count = 0;
+          input_mobile_number_length = 0;
+          memset(input_mobile_number, '\0', 10);
+        }
+        break;
+      case ENTER:
+        if (input_mobile_number_length == 10)
+        {
+          is_displayed = 0;
+          // Check for password validation
+          for (uint8_t i = 0; i < 10; i++)
+            DBG_L4_PRINTLN(input_mobile_number[i]);
+          if (input_mobile_number_count == 0)
+          {
+            input_mobile_number_count++;
+            for (uint8_t i = 0; i < 10; i++)
+            {
+              prev_input_mobile_number[i] = input_mobile_number[i];
+            }
+            input_mobile_number_length = 0;
+            memset(input_mobile_number, '\0', 10);
+          }
+          else
+          {
+            for (uint8_t i = 0; i < 10; i++)
+            {
+              if (prev_input_mobile_number[i] != input_mobile_number[i])
+              {
+                b_mobile_number_not_matched = 1;
+              }
+            }
+            if (b_mobile_number_not_matched)
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("MOBILE NUMBER :");
+              lcd.setCursor(0, 1);
+              lcd.print("NO NOT MATCHED!");
+              input_mobile_number_count = 0;
+              input_mobile_number_length = 0;
+              is_displayed = 0;
+              b_mobile_number_not_matched = 0;
+            }
+            else
+            {
+
+              if (id == 1)
+              {
+                lcd.clear();
+                lcd.setCursor(0, 0);
+                lcd.print("MOBILE NUMBER :");
+                lcd.setCursor(0, 1);
+                lcd.print("UPDATED!!");
+                is_displayed = 0;
+                input_mobile_number_count = 0;
+                input_mobile_number_length = 0;
+                b_mobile_number_not_matched = 1;
+                DBG_L2(F("USER ID ---->"));
+                DBG_L2_PRINTLN(id);
+                update_eeprom_data_at_index((id - 1), input_mobile_number, password_value[(id - 1)], password_length[(id - 1)]);
+                my_delay(1);
+                is_displayed = 0;
+                display_screen = MASTER_MAIN;
+                break;
+              }
+              else
+              {
+                lcd.setCursor(0, 0);
+                lcd.print("PLEASE WAIT...!!");
+                lcd.setCursor(0, 1);
+                lcd.print("CREATING USER-");
+                lcd.print(id);
+                update_eeprom_data_at_index((id - 1), input_mobile_number, _password, 4);
+                my_delay(1);
+                lcd.clear();
+                lcd.setCursor(0, 0);
+                lcd.print("DEFAULT PASSWORD");
+                lcd.setCursor(0, 1);
+                lcd.print("USER-");
+                lcd.print(id);
+                lcd.print(": ");
+                for (uint8_t i = 0; i < 4; i++)
+                  lcd.print(_password[i]);
+                my_delay(1);
+                input_mobile_number_count = 0;
+                input_mobile_number_length = 0;
+                is_displayed = 0;
+                display_screen = MASTER_INPUT_STATE;
+                break;
+              }
+              // else
+
+            }
+            break;
+          }
+        }
+        else
+        {
+          lcd.clear();
+          lcd.setCursor(0, 1);
+          lcd.print("Short!");
+          is_displayed = 0;
+          delay(1000);
+        }
+        break;
+      default:
+        if (input_mobile_number_length < 10)
+        {
+          input_mobile_number_length += uint8_t(is_new_index());
+
+          input_mobile_number[input_mobile_number_length - 1] = char(get_pressed_character());
+          is_displayed = 0;
+        }
+        break;
+      }
+    }
+  }
+}
+
+bool toogle_bit = 0;
+void backup_screen_fsm()
+{
+  if (!is_displayed)
+  {
+    if (b_backup_in_progress == 1)
+    {
+      if (b_backup_complete)
+      {
+        b_backup_complete = 0;
+        b_backup_in_progress = 0;
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("  BACKUP ");
+        lcd.setCursor(0, 1);
+        DBG_L2(F("  COMPLETED!!"));
+        is_displayed = 0;
+        display_screen = MASTER_MAIN;
+      }
+      else
+      {
+
+        if (toogle_bit)
+        {
+          toogle_bit = 0;
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("  BACKUP ");
+          lcd.setCursor(0, 1);
+          DBG_L3(F("IN PROGRESS .. "));
+        }
+        else
+        {
+          toogle_bit = 1;
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("  BACKUP ");
+          lcd.setCursor(0, 1);
+          DBG_L3(F("IN PROGRESS .. .."));
+        }
+      }
+    }
+    else
+    {
+      is_displayed = 1;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("  WANT TO TAKE");
+      lcd.setCursor(0, 1);
+      lcd.print("  BACKUP..??");
+      b_backup_in_progress = 0;
+      b_backup_complete = 0;
+    }
+  }
+  else
+  {
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      switch (key)
+      {
+      case CANCEL:
+        is_displayed = 0;
+        display_screen = MASTER_INPUT_STATE;
+        break;
+      case ENTER:
+        lcd.clear();
+        if (b_sd_card_not_initiated)
+        {
+          lcd.setCursor(0, 0);
+          lcd.print("  NO SD CARD ");
+          lcd.setCursor(0, 1);
+          lcd.print("  ATTACHED!!");
+
+          my_delay(1);
+          is_displayed = 0;
+          display_screen = MASTER_INPUT_STATE;
+          break;
+        }
+        if (!b_flash_drive_attached)
+        {
+          lcd.setCursor(0, 0);
+          lcd.print(" NO FLASH DRIVE");
+          lcd.setCursor(0, 1);
+          lcd.print("  ATTACHED!!");
+
+          my_delay(1);
+          is_displayed = 0;
+          display_screen = MASTER_INPUT_STATE;
+          break;
+        }
+        // if (b_flash_drive_attached && !b_sd_card_not_initiated)
+        lcd.setCursor(0, 0);
+        lcd.print("  BACKUP ");
+        lcd.setCursor(0, 1);
+        DBG_L3(F("IN PROGRESS .. .."));
+        is_displayed = 0;
+        b_backup_in_progress = 1;
+        b_backup_complete = 0;
+        break;
+      default:
+        break;
+      }
+    }
+  }
+}
+
+bool b_buzzer_timeout_updated = 0;
+uint8_t buzzer_counter = 0;
+uint16_t input_buzzer_timeout = 0;
+void buzzer_input_fsm()
+{
+  if (!is_displayed)
+  {
+    is_displayed = 1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("  DOOR TIMEOUT");
+    lcd.setCursor(0, 1);
+    lcd.print("MINUTE: ");
+    if (b_buzzer_timeout_updated)
+    {
+      buzzer_counter++;
+      b_buzzer_timeout_updated = 0;
+      lcd.print(input_buzzer_timeout);
+    }
+  }
+  else
+  {
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      switch (key)
+      {
+      case CANCEL:
+        if (buzzer_counter == 0)
+        {
+          pass_length = 0;
+          is_displayed = 0;
+          display_screen = MASTER_INPUT_STATE;
+        }
+        else
+        {
+          buzzer_counter = 0;
+          is_displayed = 0;
+          b_buzzer_timeout_updated = 0;
+          input_buzzer_timeout = 0;
+        }
+        break;
+      case ENTER:
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print(" BUZZER TIMEOUT ");
+        lcd.setCursor(0, 1);
+        if (input_buzzer_timeout == 0)
+        {
+          input_buzzer_timeout = 1;
+        }
+        write_buzzer_timeout_to_eeprom(input_buzzer_timeout);
+        //@TODO : Needs to udpate alpha speed to EEPROM
+        lcd.print("    UPDATED.  ");
+        my_delay(3);
+        is_displayed = 0;
+        buzzer_timeout = input_buzzer_timeout;
+        display_screen = MASTER_MAIN;
+        break;
+      default:
+        b_buzzer_timeout_updated = uint8_t(is_new_index());
+        if (b_buzzer_timeout_updated)
+        {
+          uint8_t temp_key = uint8_t(key) - 48;
+          if (temp_key <= 9)
+          {
+            b_buzzer_timeout_updated = 1;
+            input_buzzer_timeout = input_buzzer_timeout + (temp_key);
+            if (input_buzzer_timeout > 150)
+            {
+              input_buzzer_timeout = 150;
+            }
+            is_displayed = 0;
+          }
+        }
+        break;
+      }
+    }
+  }
+}
+// Holiday menu states
+#define HOLIDAY_MENU_MAIN 0
+#define HOLIDAY_MENU_ADD 1
+#define HOLIDAY_MENU_REMOVE 2
+#define HOLIDAY_MENU_VIEW 3
+#define HOLIDAY_MENU_INPUT_DATE 4
+#define HOLIDAY_MENU_INPUT_MONTH 5
+#define HOLIDAY_MENU_INPUT_YEAR 6
+
+uint8_t holiday_menu_state = HOLIDAY_MENU_MAIN;
+uint8_t holiday_input_date = 0;
+uint8_t holiday_input_month = 0;
+uint8_t holiday_input_year = 0;
+uint8_t holiday_input_counter = 0;
+uint8_t holiday_view_index = 0;
+bool holiday_is_remove_mode = false; // Track if we're in ADD or REMOVE mode
+
+void holiday_menu_fsm()
+{
+  if (!is_displayed)
+  {
+    is_displayed = 1;
+    lcd.clear();
+    
+    switch (holiday_menu_state)
+    {
+    case HOLIDAY_MENU_MAIN:
+      lcd.setCursor(0, 0);
+      lcd.print("  HOLIDAY MENU  ");
+      lcd.setCursor(0, 1);
+      lcd.print("1:ADD 2:REM 3:VIEW");
+      break;
+      
+    case HOLIDAY_MENU_ADD:
+      lcd.setCursor(0, 0);
+      lcd.print("  ADD HOLIDAY   ");
+      lcd.setCursor(0, 1);
+      lcd.print("DATE: ");
+      if (holiday_input_date > 0)
+      {
+        lcd.print(holiday_input_date);
+      }
+      break;
+      
+    case HOLIDAY_MENU_INPUT_MONTH:
+      lcd.setCursor(0, 0);
+      if (holiday_is_remove_mode)
+      {
+        lcd.print(" REMOVE HOLIDAY ");
+      }
+      else
+      {
+        lcd.print("  ADD HOLIDAY   ");
+      }
+      lcd.setCursor(0, 1);
+      lcd.print("MONTH: ");
+      if (holiday_input_month > 0)
+      {
+        lcd.print(holiday_input_month);
+      }
+      break;
+      
+    case HOLIDAY_MENU_INPUT_YEAR:
+      lcd.setCursor(0, 0);
+      if (holiday_is_remove_mode)
+      {
+        lcd.print(" REMOVE HOLIDAY ");
+      }
+      else
+      {
+        lcd.print("  ADD HOLIDAY   ");
+      }
+      lcd.setCursor(0, 1);
+      lcd.print("YEAR: ");
+      if (holiday_input_year > 0)
+      {
+        lcd.print(holiday_input_year);
+      }
+      break;
+      
+    case HOLIDAY_MENU_REMOVE:
+      lcd.setCursor(0, 0);
+      lcd.print(" REMOVE HOLIDAY ");
+      lcd.setCursor(0, 1);
+      lcd.print("DATE: ");
+      if (holiday_input_date > 0)
+      {
+        lcd.print(holiday_input_date);
+      }
+      break;
+      
+    case HOLIDAY_MENU_VIEW:
+      if (holiday_count == 0)
+      {
+        lcd.setCursor(0, 0);
+        lcd.print("  NO HOLIDAYS   ");
+        lcd.setCursor(0, 1);
+        lcd.print("   CONFIGURED   ");
+      }
+      else
+      {
+        // Ensure index is within bounds
+        if (holiday_view_index >= holiday_count)
+        {
+          holiday_view_index = holiday_count - 1;
+        }
+        
+        lcd.setCursor(0, 0);
+        lcd.print("HOLIDAY ");
+        lcd.print(holiday_view_index + 1);
+        lcd.print("/");
+        lcd.print(holiday_count);
+        lcd.setCursor(0, 1);
+        // Read holiday from EEPROM directly
+        size_t addr = holiday_data_start_address + (holiday_view_index * HOLIDAY_DATA_SIZE);
+        uint8_t h_date = EEPROM.read(addr);
+        uint8_t h_month = EEPROM.read(addr + 1);
+        uint8_t h_year = EEPROM.read(addr + 2);
+        if (h_date < 10) lcd.print("0");
+        lcd.print(h_date);
+        lcd.print("/");
+        if (h_month < 10) lcd.print("0");
+        lcd.print(h_month);
+        lcd.print("/");
+        if (h_year < 10) lcd.print("0");
+        lcd.print(h_year);
+      }
+      break;
+    }
+  }
+  else
+  {
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      
+      switch (holiday_menu_state)
+      {
+      case HOLIDAY_MENU_MAIN:
+        switch (key)
+        {
+        case '1':
+          holiday_menu_state = HOLIDAY_MENU_ADD;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+          break;
+        case '2':
+          holiday_menu_state = HOLIDAY_MENU_REMOVE;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = true;
+          is_displayed = 0;
+          break;
+        case '3':
+          holiday_menu_state = HOLIDAY_MENU_VIEW;
+          holiday_view_index = 0;
+          is_displayed = 0;
+          break;
+        case CANCEL:
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          is_displayed = 0;
+          display_screen = MASTER_INPUT_STATE;
+          break;
+        }
+        break;
+        
+      case HOLIDAY_MENU_ADD:
+        // Input date
+        if (key >= '0' && key <= '9')
+        {
+          uint8_t digit = key - '0';
+          if (holiday_input_date == 0)
+          {
+            holiday_input_date = digit;
+          }
+          else
+          {
+            holiday_input_date = holiday_input_date * 10 + digit;
+            if (holiday_input_date > 31) holiday_input_date = 31;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_date > 0)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_MONTH;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_INPUT_MONTH:
+        // Input month (works for both ADD and REMOVE)
+        if (key >= '0' && key <= '9')
+        {
+          uint8_t digit = key - '0';
+          if (holiday_input_month == 0)
+          {
+            holiday_input_month = digit;
+          }
+          else
+          {
+            holiday_input_month = holiday_input_month * 10 + digit;
+            if (holiday_input_month > 12) holiday_input_month = 12;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_month > 0)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_YEAR;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          // Go back to previous state (ADD or REMOVE)
+          if (holiday_is_remove_mode)
+          {
+            holiday_menu_state = HOLIDAY_MENU_REMOVE;
+          }
+          else
+          {
+            holiday_menu_state = HOLIDAY_MENU_ADD;
+          }
+          holiday_input_month = 0;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_INPUT_YEAR:
+        // Input year (works for both ADD and REMOVE)
+        if (key >= '0' && key <= '9')
+        {
+          uint8_t digit = key - '0';
+          if (holiday_input_year == 0)
+          {
+            holiday_input_year = digit;
+          }
+          else
+          {
+            holiday_input_year = holiday_input_year * 10 + digit;
+            if (holiday_input_year > 99) holiday_input_year = 99;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_year >= 0)
+        {
+          if (holiday_is_remove_mode)
+          {
+            // Remove holiday
+            if (remove_holiday(holiday_input_date, holiday_input_month, holiday_input_year))
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print(" HOLIDAY REMOVED");
+              lcd.setCursor(0, 1);
+              lcd.print("   SUCCESSFULLY ");
+              my_delay(2);
+            }
+            else
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("  HOLIDAY NOT   ");
+              lcd.setCursor(0, 1);
+              lcd.print("     FOUND      ");
+              my_delay(2);
+            }
+          }
+          else
+          {
+            // Add holiday
+            if (add_holiday(holiday_input_date, holiday_input_month, holiday_input_year))
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("  HOLIDAY ADDED ");
+              lcd.setCursor(0, 1);
+              lcd.print("   SUCCESSFULLY ");
+              my_delay(2);
+            }
+            else
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("  FAILED TO ADD ");
+              lcd.setCursor(0, 1);
+              lcd.print("  HOLIDAY/EXISTS ");
+              my_delay(2);
+            }
+          }
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_MONTH;
+          holiday_input_year = 0;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_REMOVE:
+        // Input date
+        if (key >= '0' && key <= '9')
+        {
+          uint8_t digit = key - '0';
+          if (holiday_input_date == 0)
+          {
+            holiday_input_date = digit;
+          }
+          else
+          {
+            holiday_input_date = holiday_input_date * 10 + digit;
+            if (holiday_input_date > 31) holiday_input_date = 31;
+          }
+          is_displayed = 0;
+        }
+        else if (key == ENTER && holiday_input_date > 0)
+        {
+          holiday_menu_state = HOLIDAY_MENU_INPUT_MONTH;
+          is_displayed = 0;
+        }
+        else if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_input_date = 0;
+          holiday_input_month = 0;
+          holiday_input_year = 0;
+          holiday_input_counter = 0;
+          holiday_is_remove_mode = false;
+          is_displayed = 0;
+        }
+        break;
+        
+      case HOLIDAY_MENU_VIEW:
+        if (key == CANCEL)
+        {
+          holiday_menu_state = HOLIDAY_MENU_MAIN;
+          holiday_view_index = 0;
+          is_displayed = 0;
+        }
+        else if (key == '1' || key == '4') // Previous holiday
+        {
+          if (holiday_view_index > 0)
+          {
+            holiday_view_index--;
+            is_displayed = 0;
+          }
+        }
+        else if (key == '2' || key == '6') // Next holiday
+        {
+          // Ensure we can navigate forward
+          if (holiday_count > 0 && holiday_view_index < holiday_count - 1)
+          {
+            holiday_view_index++;
+            is_displayed = 0;
+          }
+          else if (holiday_count > 0 && holiday_view_index >= holiday_count)
+          {
+            // Safety: if index is out of bounds, reset to last valid index
+            holiday_view_index = holiday_count - 1;
+            is_displayed = 0;
+          }
+        }
+        else if (key == '3') // Jump to first
+        {
+          if (holiday_count > 0)
+          {
+            holiday_view_index = 0;
+            is_displayed = 0;
+          }
+        }
+        else if (key == '5') // Jump to last
+        {
+          if (holiday_count > 0)
+          {
+            holiday_view_index = holiday_count - 1;
+            is_displayed = 0;
+          }
+        }
+        break;
+        
+      }
+    }
+  }
+}
+void finger_print_sensor_init()
+{
+  DBG_L2_PRINTLN(F("\n\nAdafruit finger detect test"));
+
+  // set the data rate for the sensor serial port
+  finger.begin(57600);
+  finger.LEDcontrol(FINGERPRINT_LED_ON, 0, FINGERPRINT_LED_OFF);
+  delay(5);
+  if (finger.verifyPassword())
+  {
+    DBG_L2_PRINTLN(F("Found fingerprint sensor!"));
+  }
+  else
+  {
+    DBG_L1_PRINTLN(F("Did not find fingerprint sensor :("));
+    // while (1)
+  }
+
+  DBG_L3_PRINTLN(F("Reading sensor parameters"));
+  finger.getParameters();
+  DBG_L3(F("Status: 0x"));
+  DBG_L3_PRINTLN(finger.status_reg, HEX);
+  DBG_L3(F("Sys ID: 0x"));
+  DBG_L3_PRINTLN(finger.system_id, HEX);
+  DBG_L3(F("Capacity: "));
+  DBG_L3_PRINTLN(finger.capacity);
+  DBG_L3(F("Security level: "));
+  DBG_L3_PRINTLN(finger.security_level);
+  DBG_L3(F("Device address: "));
+  DBG_L3_PRINTLN(finger.device_addr, HEX);
+  DBG_L3(F("Packet len: "));
+  DBG_L3_PRINTLN(finger.packet_len);
+  DBG_L3(F("Baud rate: "));
+  DBG_L3_PRINTLN(finger.baud_rate);
+
+  finger.getTemplateCount();
+
+  if (finger.templateCount == 0)
+  {
+    DBG_L2(F("Sensor doesn't contain any fingerprint data. Please run the 'enroll' example."));
+  }
+  else
+  {
+    DBG_L3_PRINTLN(F("Waiting for valid finger..."));
+    DBG_L3(F("Sensor contains "));
+    DBG_L3(finger.templateCount);
+    DBG_L3_PRINTLN(F(" templates"));
+  }
+}
+int8_t getFingerprintID()
+{
+  uint8_t p = finger.getImage();
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    DBG_L3_PRINTLN(F("Image taken"));
+    break;
+  case FINGERPRINT_NOFINGER:
+    return -1;
+  // case FINGERPRINT_PACKETRECIEVEERR:
+  // case FINGERPRINT_IMAGEFAIL:
+  default:
+    return  -1;
+  }
+
+  // OK success!
+
+  p = finger.image2Tz();
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    DBG_L3_PRINTLN(F("Image converted"));
+    break;
+  // case FINGERPRINT_IMAGEMESS:
+  // case FINGERPRINT_PACKETRECIEVEERR:
+  // case FINGERPRINT_FEATUREFAIL:
+  // case FINGERPRINT_INVALIDIMAGE:
+  default:
+    DBG_L1_PRINTLN(F("Unknown error"));
+    return -1;
+  }
+
+  // OK converted!
+  p = finger.fingerSearch();
+  if (p == FINGERPRINT_OK)
+  {
+    DBG_L2_PRINTLN(F("Found a print match!"));
+    // } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
+  }
+  else if (p == FINGERPRINT_NOTFOUND)
+  {
+    DBG_L2_PRINTLN(F("Did not find a match"));
+    return MAX_NUM_OF_USERS + 2;
+  }
+  else
+  {
+    DBG_L1_PRINTLN(F("Unknown error"));
+    return -1;
+  }
+
+  // found a match!
+  DBG_L2(F("Found ID #"));
+  DBG_L2(finger.fingerID);
+  DBG_L2(F(" with confidence of "));
+  DBG_L2_PRINTLN(finger.confidence);
+
+  return finger.fingerID;
+}
+
+uint8_t deleteFingerprint(uint8_t id)
+{
+  uint8_t p = -1;
+
+  p = finger.deleteModel(id);
+
+  if (p == FINGERPRINT_OK)
+  {
+    DBG_L2_PRINTLN(F("Deleted!"));
+  }
+  else if (p == FINGERPRINT_PACKETRECIEVEERR)
+  {
+    DBG_L1_PRINTLN(F("Communication error"));
+  }
+  else if (p == FINGERPRINT_BADLOCATION)
+  {
+    DBG_L1_PRINTLN(F("Could not delete in that location"));
+  }
+  else if (p == FINGERPRINT_FLASHERR)
+  {
+    DBG_L1_PRINTLN(F("Error writing to flash"));
+  }
+  else
+  {
+    DBG_L1(F("Unknown error: 0x"));
+    DBG_L1_PRINTLN(p, HEX);
+  }
+
+  return p;
+}
+void clear_screen_and_enroll_finger()
+{
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("ENROLL FINGER :");
+  lcd.setCursor(0, 1);
+}
+int8_t getFingerprintEnroll(int id)
+{
+  int p = -1;
+  DBG_L3(F("Waiting for valid finger to enroll as #"));
+  DBG_L3_PRINTLN(id);
+  clear_screen_and_enroll_finger();
+  while (p != FINGERPRINT_OK)
+  {
+    p = finger.getImage();
+    switch (p)
+    {
+    case FINGERPRINT_OK:
+      DBG_L3_PRINTLN(F("Image taken"));
+      lcd.print("IMAGE TAKEN");
+      break;
+    case FINGERPRINT_NOFINGER:
+      break;
+    default:
+      DBG_L1_PRINTLN(F("Unknown error"));
+      lcd.print("UNKNOWN ERROR!");
+      break;
+    }
+  }
+
+  // OK success!
+
+  p = finger.image2Tz(1);
+  clear_screen_and_enroll_finger();
+
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    DBG_L3_PRINTLN(F("Image converted"));
+    lcd.print("IMAGE CONVERTED");
+    break;
+  default:
+    DBG_L1_PRINTLN(F("Unknown error"));
+    lcd.print("UNKNOWN ERROR!");
+    return -1;
+  }
+  clear_screen_and_enroll_finger();
+  lcd.print("REMOVE FINGER!");
+  DBG_L3_PRINTLN(F("Remove finger"));
+  delay(2000);
+  p = 0;
+  while (p != FINGERPRINT_NOFINGER)
+  {
+    p = finger.getImage();
+  }
+  DBG_L3(F("ID "));
+  DBG_L3_PRINTLN(id);
+  p = -1;
+  clear_screen_and_enroll_finger();
+  lcd.print("CONFIRM FINGER!");
+  DBG_L3_PRINTLN(F("Place same finger again"));
+  while (p != FINGERPRINT_OK)
+  {
+    p = finger.getImage();
+    switch (p)
+    {
+    case FINGERPRINT_OK:
+      clear_screen_and_enroll_finger();
+      DBG_L3_PRINTLN(F("Image taken"));
+      lcd.print("IMAGE TAKEN");
+      break;
+    case FINGERPRINT_NOFINGER:
+      break;
+    default:
+      clear_screen_and_enroll_finger();
+      DBG_L1_PRINTLN(F("Unknown error"));
+      lcd.print("UNKNOWN ERROR!");
+      break;
+    }
+  }
+
+  // OK success!
+  clear_screen_and_enroll_finger();
+  p = finger.image2Tz(2);
+  switch (p)
+  {
+  case FINGERPRINT_OK:
+    DBG_L3_PRINTLN(F("Image converted"));
+    lcd.print("IMAGE CONVERTED!");
+    break;
+  default:
+    DBG_L1_PRINTLN(F("Unknown error"));
+    lcd.print("UNKNOWN ERROR!");
+    return -1;
+  }
+
+  // OK converted!
+  DBG_L3(F("Creating model for #"));
+  DBG_L3_PRINTLN(id);
+  clear_screen_and_enroll_finger();
+  p = finger.createModel();
+  if (p == FINGERPRINT_OK)
+  {
+    DBG_L2_PRINTLN(F("Prints matched!"));
+    lcd.print("PRINTS MATCHED!");
+  }
+  else
+  {
+    DBG_L1_PRINTLN(F("Unknown error"));
+    lcd.print("UNKNOWN ERROR!");
+    return -1;
+  }
+
+  DBG_L3(F("ID "));
+  DBG_L3_PRINTLN(id);
+  clear_screen_and_enroll_finger();
+  p = finger.storeModel(id);
+  if (p == FINGERPRINT_OK)
+  {
+    DBG_L2_PRINTLN(F("Stored!"));
+    lcd.print("STORED!");
+    delay(2000);
+    return true;
+  }
+  else
+  {
+    DBG_L1_PRINTLN(F("Unknown error"));
+    lcd.print("UNKNOWN ERROR!");
+    return -1;
+  }
+
+  return true;
+}
+uint8_t temp_user_id = 0;
+
+// Helper function to parse user ID from password input
+uint8_t parse_user_id_from_password(char* password, uint8_t pass_length, uint8_t* user_id_length)
+{
+  if (pass_length < 1) return 0;
+  
+  // Check if first two characters form a valid 2-digit user ID (10-28)
+  if (pass_length >= 2 && password[0] >= '1' && password[0] <= '2' && password[1] >= '0' && password[1] <= '8')
+  {
+    uint8_t user_id = (password[0] - '0') * 10 + (password[1] - '0');
+    if (user_id >= 10 && user_id <= 28)
+    {
+      *user_id_length = 2;
+      return user_id;
+    }
+  }
+  
+  // Check if first two characters form a valid 2-digit user ID with leading zero (01-09)
+  if (pass_length >= 2 && password[0] == '0' && password[1] >= '1' && password[1] <= '9')
+  {
+    uint8_t user_id = password[1] - '0'; // Extract the second digit as the actual user ID
+    *user_id_length = 2;
+    return user_id;
+  }
+  
+  // Check if first character is a valid 1-digit user ID (1-9)
+  if (password[0] >= '1' && password[0] <= '9')
+  {
+    uint8_t user_id = password[0] - '0';
+    *user_id_length = 1;
+    return user_id;
+  }
+  
+  return 0; // Invalid user ID
+}
+
+// User ID input variables
+char user_id_input[3] = {'\0'};  // Max 2 digits + null terminator
+uint8_t user_id_input_length = 0;
+uint8_t user_id_input_screen_type = 0;  // 1=ADD_USER, 2=REMOVE_USER, 3=ADD_FINGERPRINT
+
+void user_id_input_fsm()
+{
+  if (!is_displayed)
+  {
+    is_displayed = 1;
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    switch (user_id_input_screen_type)
+    {
+      case 1:
+        LCD_PRINT("CREATE USER");
+        break;
+      case 2:
+        LCD_PRINT("REMOVE USER");
+        break;
+      case 3:
+        LCD_PRINT("ADD FINGERPRINT");
+        break;
+    }
+    lcd.setCursor(0, 1);
+    LCD_PRINT("USER ID: ");
+    user_id_input_length = 0;
+    memset(user_id_input, '\0', sizeof(user_id_input));
+  }
+  else
+  {
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      if (key == CANCEL)
+      {
+        user_id_input_length = 0;
+        memset(user_id_input, '\0', sizeof(user_id_input));
+        is_displayed = 0;
+        display_screen = MASTER_INPUT_STATE;
+      }
+      else if (key == ENTER)
+      {
+        if (user_id_input_length > 0)
+        {
+          uint8_t user_id = atoi(user_id_input);
+          DBG_L3(F("User ID entered: "));
+          DBG_L3_PRINTLN(user_id);
+          DBG_L3(F("Input length: "));
+          DBG_L3_PRINTLN(user_id_input_length);
+          if (user_id >= 1 && user_id <= MAX_NUM_OF_USERS)
+          {
+            switch (user_id_input_screen_type)
+            {
+              case 1: // ADD_USER
+                if (!check_if_password_is_configured(user_id - 1) && user_id != 1)
+                {
+                  temp_user_id = user_id;
+                  is_displayed = 0;
+                  display_screen = MASTER_ADD_USER_MOBILE_NUMBER;
+                }
+                else
+                {
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER ALREADY");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("EXISTS!!");
+                  delay(2000);
+                  is_displayed = 0;
+                  display_screen = MASTER_INPUT_STATE;
+                }
+                break;
+              case 2: // REMOVE_USER
+                if (check_if_password_is_configured(user_id - 1) && user_id != 1)
+                {
+                  lcd.clear();
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("PLEASE WAIT...!!");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("DELETING USER-");
+                  lcd.print(user_id);
+                  deleteFingerprint(user_id);
+                  clear_password_in_eeprom(user_id - 1);
+                  my_delay(3);
+                  lcd.clear();
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER-");
+                  lcd.print(user_id);
+                  LCD_PRINT(" DELETED!!");
+                  jump_to_master_main();
+                  display_screen = MASTER_INPUT_STATE;
+                }
+                else
+                {
+                  lcd.clear();
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER NOT");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("FOUND!!");
+                  delay(2000);
+                  is_displayed = 0;
+                  display_screen = MASTER_INPUT_STATE;
+                }
+                break;
+                case 3: // ADD_FINGERPRINT
+                if (check_if_password_is_configured(user_id - 1))
+                {
+                  temp_user_id = user_id;
+                  is_displayed = 0;
+                  display_screen = ADD_FINGERPRINT_SCREEN;
+                }
+                else
+                {
+                  lcd.clear();
+                  lcd.setCursor(0, 0);
+                  LCD_PRINT("USER NOT");
+                  lcd.setCursor(0, 1);
+                  LCD_PRINT("CONFIGURED!!");
+                  delay(2000);
+                  is_displayed = 0;
+                  display_screen = MASTER_INPUT_STATE;
+                }
+                break;
+              }
+            }
+            else
+            {
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              LCD_PRINT("INVALID USER");
+              lcd.setCursor(0, 1);
+              LCD_PRINT("ID (1-28)!!");
+              delay(2000);
+              is_displayed = 0;
+              display_screen = MASTER_INPUT_STATE;
+            }
+          }
+          else
+        {
+          lcd.setCursor(0, 0);
+          LCD_PRINT("ENTER USER");
+          lcd.setCursor(0, 1);
+          LCD_PRINT("ID FIRST!!");
+          delay(2000);
+          is_displayed = 0;
+          display_screen = MASTER_INPUT_STATE;
+        }
+      }
+      else if (key >= '0' && key <= '9' && user_id_input_length < 2)
+      {
+        user_id_input[user_id_input_length] = key;
+        user_id_input_length++;
+        lcd.setCursor(8 + user_id_input_length - 1, 1);
+        lcd.print(key);
+      }
+    }
+  }
+}
+
+void fingerprint_register_fsm()
+{
+  if (getFingerprintEnroll(temp_user_id))
+  {
+    is_displayed = 0;
+    display_screen = MASTER_INPUT_STATE;
+  }
+  else
+  {
+    is_displayed = 0;
+    display_screen = FINGERPRINT_SCREEN;
+  }
+}
+
+
+void update_queue(uint8_t message_type, uint8_t message)
+{
+  if (queue_index < 10)
+  {
+    type_list[queue_index] = message_type;
+    message_details[queue_index] = message;
+    queue_index++;
+    DBG_L3(F("queue updated .... "));
+    DBG_L3_PRINTLN(queue_index);
+  }
+}
+
+bool b_sms_sent_for_open = 0;
+bool b_door_timeout_alert_sent = 0;
+unsigned long applicable_buzzer_timeout = buzzer_timeout;
+
+// LCD string constants stored in PROGMEM to save RAM
+const char LCD_STR_ERROR_OPENING[] PROGMEM = "ERROR IN OPENING";
+const char LCD_STR_OPENING_DOOR[] PROGMEM = "OPENING DOOR ";
+const char LCD_STR_OPENING_DOOR_DOT[] PROGMEM = "OPENING DOOR..";
+const char LCD_STR_DOOR_OPENED[] PROGMEM = "DOOR OPENED  ";
+const char LCD_STR_DOOR_CLOSED[] PROGMEM = "DOOR CLOSED  ";
+const char LCD_STR_CLOSING_DOOR[] PROGMEM = "CLOSING DOOR ";
+const char LCD_STR_CLOSING_DOOR_DOT[] PROGMEM = "CLOSING DOOR ...";
+const char LCD_STR_ERROR_CLOSING[] PROGMEM = "ERROR IN CLOSING!!";
+const char LCD_STR_SENSOR[] PROGMEM = "Sensor";
+const char LCD_STR_NOT_ALIGNED[] PROGMEM = "Not Aligned!!";
+const char LCD_STR_MASTER_SCREEN[] PROGMEM = "MASTER SCREEN";
+
+// Helper function to print PROGMEM strings to LCD
+void lcd_print_P(const char* str) {
+  char buffer[20];  // Buffer for LCD strings (max 16 chars + margin)
+  strcpy_P(buffer, str);
+  lcd.print(buffer);
+}
+
+// Helper function to handle common door opening display logic
+void display_door_opening(const char* msg, bool is_master) {
+  lcd.clear();
+  lcd_print_P(msg);
+  lcd.print(door_open_count);
+  is_displayed = 1;
+  door_open_start_time = millis();
+  b_error_in_door_open = 0;
+}
+
+// Helper function to handle common door opened display logic  
+void display_door_opened(bool is_master) {
+  lcd.clear();
+  lcd_print_P(LCD_STR_DOOR_OPENED);
+  lcd.print(door_open_count);
+  is_displayed = 1;
+  b_error_in_door_open = 0;
+  door_open_time = millis();
+  
+  if (!b_sms_sent_for_open) {
+    b_sms_sent_for_open = 1;
+    // Queue OPEN_DOOR messages for users 0 to 4 if configured
+    for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+    {
+      if (is_password_configured[idx])
+      {
+        // message_details will carry recipient index (idx)
+        update_queue(OPEN_DOOR_MSG, idx);
+      }
+    }
+    update_log_entry(door_open_count, user_id, OPEN);
+  }
+  display_screen = is_master ? MASTER_INPUT_STATE : USER_INPUT_STATE;
+}
+
+// Helper function to handle common door closing display logic
+void display_door_closing() {
+  DBG_L2_PRINTLN(F("CLOSING DOOR"));
+  door_open_start_time = millis();
+  lcd.clear();
+  lcd_print_P(LCD_STR_CLOSING_DOOR);
+  lcd.print(door_open_count);
+  is_displayed = 1;
+}
+
+// Helper function to handle common door closed display logic
+void display_door_closed(bool is_master) {
+  lcd.clear();
+  lcd_print_P(LCD_STR_DOOR_CLOSED);
+  lcd.print(door_open_count);
+  is_displayed = 0;
+  b_error_in_door_close = 0;
+  b_sms_sent_for_open = 0;
+  b_door_timeout_alert_sent = 0;  // Reset timeout alert flag when door closes
+  
+  // Queue CLOSE_DOOR messages for users 0 to 4 if configured
+  for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+  {
+    if (is_password_configured[idx])
+    {
+      update_queue(CLOSE_DOOR_MSG, idx);
+    }
+  }
+  update_log_entry(door_open_count, user_id, CLOSE);
+  delay(3000);
+  lcd_power_off();
+  display_screen = MAIN;
+}
+
+void lcd_task()
+{
+  // Cache millis() to avoid multiple calls
+  unsigned long current_millis = millis();
+  
+  switch (display_screen)
+  {
+  case MAIN:
+    if (current_millis - display_on_timer > display_on_timeout)
+    {
+      pass_length = 0;
+      lcd_power_off();
+      user_bio_auth_fail_count = 0; // Reset on MAIN screen timeout
+      first_user_verified = 0;
+    }
+    if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered)
+    {
+      input_otp_fsm();
+    }
+    else
+    {
+      password_input_fsm();
+    }
+    break;
+    
+  case MASTER_MAIN:
+    if (!is_displayed)
+    {
+      if (b_error_in_door_open)
+      {
+        lcd.setCursor(0, 1);
+        lcd_print_P(LCD_STR_ERROR_OPENING);
+        is_displayed = 1;
+      }
+      else if (is_door_opening)
+      {
+        display_door_opening(LCD_STR_OPENING_DOOR, true);
+      }
+      else if (is_door_open())
+      {
+        display_door_opened(true);
+        break;
+      }
+    }
+    if (!is_door_opening)
+    {
+      is_displayed = 0;
+    }
+    else if (!b_error_in_door_open && current_millis - door_open_start_time > DOOR_OPEN_TIMEOUT)
+    {
+      DBG_L1_PRINTLN(F("ERROR IN OPENING DOOR"));
+      b_error_in_door_open = 1;
+      is_displayed = 0;
+      door_error_start_time = current_millis;
+    }
+    else if (b_error_in_door_open && current_millis - door_error_start_time > DOOR_OPEN_ERROR_TIMEOUT)
+    {
+      is_displayed = 0;
+      b_command_open_door = 0;
+      b_error_in_door_open = 0;
+      b_command_close_door = 1;
+      DBG_L3_PRINTLN(F("4443"));
+      b_error_in_door_close = 0;
+      display_screen = LOCK_DOOR_STATE;
+      break;
+    }
+    break;
+    
+  case MASTER_INPUT_STATE:
+    applicable_buzzer_timeout = buzzer_timeout * 60000UL;  // Use UL suffix for unsigned long constant
+    if (current_millis - door_open_time > applicable_buzzer_timeout)
+    {
+      DBG_L4_PRINTLN(applicable_buzzer_timeout);
+      DBG_L3_PRINTLN(F("Buzzer ON"));
+      DBG_L4_PRINTLN(door_open_time);
+      DBG_L4_PRINTLN(current_millis);
+      door_open_time = current_millis;
+      b_buzzer_on = 1;
+      
+      // Send door timeout alert if not already sent for this timeout period
+      if (!b_door_timeout_alert_sent)
+      {
+        b_door_timeout_alert_sent = 1;
+        // Queue DOOR_TIMEOUT messages for users 0 to 4 if configured
+        for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+        {
+          if (is_password_configured[idx])
+          {
+            update_queue(DOOR_TIMEOUT_MSG, idx);
+          }
+        }
+      }
+    }
+    if(!is_displayed){
+      is_displayed = 1;
+      lcd.clear();
+      lcd_print_P(LCD_STR_MASTER_SCREEN);
+    }
+    if (is_new_key)
+    {
+      is_new_key = 0;
+      DBG_L3_PRINTLN(F("MASTER_MAIN"));
+      DBG_L4_PRINTLN(key);
+      switch (key)
+      {
+      case '1':
+        is_displayed = 0;
+        display_screen = MASTER_ADD_USER;
+        break;
+      case '2':
+        is_displayed = 0;
+        display_screen = MASTER_REMOVE_USER;
+        break;
+      case '3':
+        is_displayed = 0;
+        display_screen = MASTER_PASSWORD;
+        break;
+      case '4':
+        is_displayed = 0;
+        date_time_len = 0;
+        memset(date_time, '\0', 13);
+        DBG_L3_PRINTLN(F("MASTER_DAT_TIM"));
+        display_screen = MASTER_DAT_TIM;
+        break;
+      case '5':
+        is_displayed = 0;
+        input_mobile_number_length = 0;
+        display_screen = INPUT_MOBILE_NUMBER;
+        break;
+      case '6':
+        is_displayed = 0;
+        // Reset holiday menu state when entering
+        holiday_menu_state = HOLIDAY_MENU_MAIN;
+        holiday_input_date = 0;
+        holiday_input_month = 0;
+        holiday_input_year = 0;
+        holiday_input_counter = 0;
+        holiday_view_index = 0;
+        holiday_is_remove_mode = false;
+        display_screen = HOLIDAY_SCREEN;
+        break;
+      case '7':
+        is_displayed = 0;
+        alpha_counter = 0;
+        display_screen = BACKUP_SCREEN;
+        break;
+      case '8':
+        is_displayed = 0;
+        buzzer_counter = 0;
+        display_screen = BUZZER_SCREEN;
+        break;
+      case '9':
+        is_displayed = 0;
+        buzzer_counter = 0;
+        display_screen = FINGERPRINT_SCREEN;
+        break;
+      case CANCEL:
+        pass_length = 0;
+        is_displayed = 0;
+        display_screen = MAIN;
+        break;
+      case LOCK:
+        is_displayed = 0;
+        b_command_close_door = 1;
+        DBG_L3_PRINTLN(F("4445"));
+        b_error_in_door_close = 0;
+        display_screen = LOCK_DOOR_STATE;
+        break;
+      default:
+        break;
+      }
+    }
+    break;
+    
+  case LOCK_DOOR_STATE:
+    if (!is_displayed)
+    {
+      if (b_error_in_door_close)
+      {
+        lcd.clear();
+        lcd.setCursor(0, 1);
+        lcd_print_P(LCD_STR_ERROR_CLOSING);
+        is_displayed = 0;
+      }
+      else if (!is_door_aligned_by_ir())
+      {
+        lcd.clear();
+        lcd.setCursor(5, 0);
+        lcd_print_P(LCD_STR_SENSOR);
+        lcd.setCursor(1, 1);
+        lcd_print_P(LCD_STR_NOT_ALIGNED);
+        is_displayed = 0;
+        delay(1000);
+        b_command_close_door = 0;
+        b_command_open_door = 0;
+        dc_motor_stop();
+        
+        display_screen = (user_id == 1) ? MASTER_MAIN : USER;
+        DBG_L3_PRINTLN(display_screen == MASTER_MAIN ? F("MASTER_MAIN") : F("USER"));
+        break;
+      }
+      else if (is_door_closing)
+      {
+        display_door_closing();
+        display_screen = LOCK_DOOR_STATE;
+        break;
+      }
+      else if (is_door_close())
+      {
+        display_door_closed(user_id == 1);
+        break;
+      }
+    }
+    if (!is_door_closing)
+    {
+      is_displayed = 0;
+    }
+    else if (current_millis - door_open_start_time > 5000)
+    {
+      b_error_in_door_close = 1;
+      is_displayed = 0;
+    }
+    break;
+  case MASTER_ADD_USER:
+    user_id_input_screen_type = 1;  // ADD_USER
+    is_displayed = 0;
+    display_screen = USER_ID_INPUT_SCREEN;
+    break;
+  case MASTER_ADD_USER_MOBILE_NUMBER:
+    mobile_number_input_fsm(temp_user_id);
+    break;
+  case MASTER_REMOVE_USER:
+    user_id_input_screen_type = 2;  // REMOVE_USER
+    is_displayed = 0;
+    display_screen = USER_ID_INPUT_SCREEN;
+    break;
+
+  case MASTER_PASSWORD:
+    password_input_fsm();
+    break;
+
+  case MASTER_DAT_TIM:
+    date_time_input_fsm();
+    break;
+
+  case MASTER_BACKUP:
+    break;
+
+  case HOLIDAY_SCREEN:
+    holiday_menu_fsm();
+    break;
+
+  case BACKUP_SCREEN:
+    backup_screen_fsm();
+    break;
+
+  case BUZZER_SCREEN:
+    buzzer_input_fsm();
+    break;
+
+  case FINGERPRINT_SCREEN:
+    user_id_input_screen_type = 3;  // ADD_FINGERPRINT
+    is_displayed = 0;
+    display_screen = USER_ID_INPUT_SCREEN;
+    break;
+  case ADD_FINGERPRINT_SCREEN:
+    fingerprint_register_fsm();
+    break;
+
+  case USER_ID_INPUT_SCREEN:
+    user_id_input_fsm();
+    break;
+
+  case INPUT_MOBILE_NUMBER:
+    mobile_number_input_fsm(user_id);
+    break;
+
+  case USER:
+    if (!is_displayed)
+    {
+      if (b_error_in_door_open)
+      {
+        lcd.setCursor(0, 1);
+        lcd_print_P(LCD_STR_ERROR_OPENING);
+        is_displayed = 1;
+      }
+      else if (is_door_opening)
+      {
+        display_door_opening(LCD_STR_OPENING_DOOR_DOT, false);
+      }
+      else if (is_door_open())
+      {
+        display_door_opened(false);
+        break;
+      }
+    }
+    if (!is_door_opening)
+    {
+      is_displayed = 0;
+    }
+    else if (!b_error_in_door_open && current_millis - door_open_start_time > DOOR_OPEN_TIMEOUT)
+    {
+      DBG_L1_PRINTLN(F("ERROR IN OPENING DOOR"));
+      b_error_in_door_open = 1;
+      is_displayed = 0;
+      door_error_start_time = current_millis;
+    }
+    else if (b_error_in_door_open && current_millis - door_error_start_time > DOOR_OPEN_ERROR_TIMEOUT)
+    {
+      is_displayed = 0;
+      b_command_open_door = 0;
+      b_error_in_door_open = 0;
+      b_command_close_door = 1;
+      DBG_L3_PRINTLN(F("4446"));
+      b_error_in_door_close = 0;
+      display_screen = LOCK_DOOR_STATE;
+      break;
+    }
+    break;
+    
+  case USER_LOCK_DOOR_STATE:
+    if (!is_displayed)
+    {
+      if (b_error_in_door_close)
+      {
+        lcd.setCursor(0, 1);
+        lcd_print_P(LCD_STR_ERROR_CLOSING);
+        is_displayed = 1;
+      }
+      else if (is_door_closing)
+      {
+        display_door_closing();
+        display_screen = LOCK_DOOR_STATE;
+        break;
+      }
+      else if (is_door_close())
+      {
+        display_door_closed(false);
+        break;
+      }
+    }
+    if (!is_door_closing)
+    {
+      is_displayed = 0;
+    }
+    else if (current_millis - door_open_start_time > 5000)
+    {
+      b_error_in_door_close = 1;
+      is_displayed = 0;
+    }
+    break;
+    
+  case USER_INPUT_STATE:
+    // Check for door timeout if door is open
+    if (is_door_open())
+    {
+      applicable_buzzer_timeout = buzzer_timeout * 60000UL;  // Use UL suffix for unsigned long constant
+      if (current_millis - door_open_time > applicable_buzzer_timeout)
+      {
+        DBG_L4_PRINTLN(applicable_buzzer_timeout);
+        DBG_L3_PRINTLN(F("Buzzer ON"));
+        DBG_L4_PRINTLN(door_open_time);
+        DBG_L4_PRINTLN(current_millis);
+        door_open_time = current_millis;
+        b_buzzer_on = 1;
+        
+        // Send door timeout alert if not already sent for this timeout period
+        if (!b_door_timeout_alert_sent)
+        {
+          b_door_timeout_alert_sent = 1;
+          // Queue DOOR_TIMEOUT messages for users 0 to 4 if configured
+          for (uint8_t idx = 0; idx < 5 && idx < MAX_USER_TO_BE_STORED; idx++)
+          {
+            if (is_password_configured[idx])
+            {
+              update_queue(DOOR_TIMEOUT_MSG, idx);
+            }
+          }
+        }
+      }
+    }
+    
+    if (!is_displayed)
+    {
+      is_displayed = 1;
+      lcd.clear();
+      lcd_print_P(LCD_STR_OPENING_DOOR);
+      lcd.print(door_open_count);
+      b_command_open_door = 1;
+    }
+    else if (is_new_key)
+    {
+      is_new_key = 0;
+      DBG_L3_PRINTLN(F("USER_MAIN"));
+      switch (key)
+      {
+      case LOCK:
+        open_door();
+        lcd.clear();
+        lcd_print_P(LCD_STR_CLOSING_DOOR_DOT);
+        is_displayed = 0;
+        display_screen = LOCK_DOOR_STATE;
+        b_command_close_door = 1;
+        DBG_L3_PRINTLN(F("4447"));
+        break;
+      case '1':
+        is_displayed = 0;
+        display_screen = USER_PASSWORD;
+        break;
+      case '2':
+      default:
+        break;
+      }
+    }
+    break;
+
+  case USER_PASSWORD:
+    password_input_fsm();
+    break;
+  }
+}
+
+bool is_password_valid(uint8_t _user_id, char *password, uint8_t pass_len)
+{
+  if (_user_id < 1 || _user_id > MAX_NUM_OF_USERS) return 0;
+  
+  uint8_t user_index = _user_id - 1; // Convert to 0-based index
+  if (pass_len != password_length[user_index])
+  {
+    return 0;
+  }
+  bool status = is_password_matched(user_index, password, pass_len);
+  DBG_L4(F("user_id: "));
+  DBG_L4_PRINTLN(_user_id);
+  DBG_L4(F("password: "));
+  DBG_L4_PRINTLN(password);
+  DBG_L4(F("pass_len: "));
+  DBG_L4_PRINTLN(pass_len);
+  return status;
+}
+/*************** LCD CODE [END] ******************/
+/*************** GSM CODE [START] ****************/
+
+char msg;
+char call;
+
+char serial_buffer[200];  // Increased to 200 to safely house the full, massive multi-line +CMGR payload
+uint8_t serial_buffer_index = 0;
+uint8_t i = 0;
+
+char char_array[100];  // Increased just to safely hold large parameter counts
+char received_mobile_number_in_char[11];
+// char received_mnic[10];  // Removed unused buffer to save 10 bytes RAM
+int8_t received_mobile_number_index1 = -1;
+
+#define MIN_CMD_LEN 3
+#define MAX_CMD_LEN 20
+#define MAX_PARA_LEN 12  // Reduced from 16 to save 20 bytes RAM (para array: 5*12=60 vs 5*16=80)
+#define CMD_SEPARATOR ','
+
+#define MSG_START_CHAR '&'
+#define MSG_END_CHAR '#'
+
+#define MAX_PARAMETER 5
+#define CMD_NOT_FOUND 0
+#define CMD_EXECUTED 1
+
+char cmd[15] = {'\0'};  // Reduced from 20 to save 5 bytes RAM
+char para[MAX_PARAMETER][MAX_PARA_LEN];
+uint8_t para_len[MAX_PARAMETER];
+uint8_t para_count = 0;
+uint8_t cmd_length = 0;
+
+/* api function pointer array variables [START] */
+typedef char *(*functionPtr)();
+functionPtr func_list[10] = {};
+
+#define MAX_API 10
+uint8_t total_api = 0;
+static char api_list[MAX_API + 1][20] = {"{\"status\":\"failure\",\"data\":\"ANF or WSP \"}"};
+/* api function pointer array variables [END] */
+
+uint32_t call_start_time = millis();
+uint32_t call_timeout = 20000;
+
+// GSM message status strings in PROGMEM to save RAM
+const char GSM_MSG_GUNPOINT[] PROGMEM = "Gun Point Message Sent!!";
+const char GSM_MSG_VIBRATION[] PROGMEM = "Vibration Message Alert Sent!!";
+const char GSM_MSG_TEMPERATURE[] PROGMEM = "Temperature Message Alert Sent!!";
+const char GSM_MSG_GUNPOINT_CALL[] PROGMEM = "Gun Point Call Sent!!";
+const char GSM_MSG_AUTH_FAIL[] PROGMEM = "Auth Fail Message Sent!!";
+const char GSM_MSG_DETAILS[] PROGMEM = "message details -->";
+
+// Helper function to determine recipient for door status messages
+inline uint8_t get_door_msg_recipient(uint8_t msg_detail) {
+  uint8_t recipient_index = msg_detail - 1;
+  
+  // Send to master if: master user OR invalid user OR received mobile number
+  if (recipient_index == 0 || 
+      (recipient_index >= MAX_NUM_OF_USERS && recipient_index != RECEIVED_MOBILE_NUMBER_INDEX)) {
+    return MASTER_USER_ID;
+  }
+  return recipient_index;
+}
+
+// Helper function to send door status with optimized recipient logic
+inline void send_door_status_optimized(uint8_t msg_detail, bool is_open) {
+  // msg_detail now holds the recipient index directly (0-based user index)
+  // Use global user_id as the actor ID in the message
+  SendMessageDoorStatus(msg_detail, user_id, is_open ? 1 : 0);
+}
+
+// Helper function to check timeout and send message
+inline bool check_timeout_and_send(unsigned long current_millis, uint32_t timeout_ms) {
+  if (current_millis - call_start_time > timeout_ms) {
+    call_start_time = current_millis;
+    return true;
+  }
+  return false;
+}
+
+// Helper function to print PROGMEM status message
+inline void print_status_P(const char* msg) {
+  char buffer[30];
+  strcpy_P(buffer, msg);
+  DBG_L4_PRINTLN(buffer);
+}
+
+void gsm_housekeeping_task()
+{
+  // Cache millis() to avoid multiple calls
+  unsigned long current_millis = millis();
+  
+  // Check if SMS master verification has expired
+  if (sms_master_verified && (current_millis - sms_master_verified_time > SMS_MASTER_VERIFY_TIMEOUT))
+  {
+    sms_master_verified = false;
+    DBG_L2_PRINTLN(F("SMS master verification timeout - reset"));
+  }
+  
+  if (queue_index > 0)
+  {
+    // Cache queue values to avoid repeated array access
+    uint8_t current_type = type_list[queue_index - 1];
+    uint8_t current_msg_detail = message_details[queue_index - 1];
+    
+    switch (current_type)
+    {
+    case OPEN_DOOR_MSG:
+      #ifdef DEBUG
+      DBG_L4(F("message details -->"));
+      DBG_L4(current_msg_detail);
+      DBG_L4(F(" | "));
+      DBG_L4_PRINTLN(current_msg_detail - 1);
+      #endif
+      
+      // Original behaviour: send one door-open message based on queue entry
+      send_door_status_optimized(current_msg_detail, true);
+      queue_index--;
+      break;
+      
+    case CLOSE_DOOR_MSG:
+      // Original behaviour: send one door-close message based on queue entry
+      send_door_status_optimized(current_msg_detail, false);
+      queue_index--;
+      break;
+      
+    case GUN_POINT_MSG:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        print_status_P(GSM_MSG_GUNPOINT);
+        DBG_L4_PRINTLN(current_msg_detail);
+        SendMessageGunPointMessage(current_msg_detail, char_generated_otp);
+        queue_index--;
+      }
+      break;
+      
+    case VIBRATION_ALARM_MSG:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        print_status_P(GSM_MSG_VIBRATION);
+        DBG_L4_PRINTLN(current_msg_detail);
+        SendMessageVibrationAlarmMessage(current_msg_detail, char_generated_otp);
+        queue_index--;
+      }
+      break;
+      
+    case TEMP_ALARM_MSG:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        print_status_P(GSM_MSG_TEMPERATURE);
+        DBG_L4_PRINTLN(current_msg_detail);
+        SendMessageTempAlarmMessage(current_msg_detail, char_generated_otp);
+        queue_index--;
+      }
+      break;
+      
+    case GUN_POINT_CALL:
+      if (check_timeout_and_send(current_millis, call_timeout))
+      {
+        print_status_P(GSM_MSG_GUNPOINT_CALL);
+        DBG_L4_PRINTLN(current_msg_detail);
+        MakeCallWithNumber(current_msg_detail);
+        queue_index--;
+      }
+      break;
+      
+    case AUTH_FAIL_MSG:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        print_status_P(GSM_MSG_AUTH_FAIL);
+        DBG_L4_PRINTLN(current_msg_detail);
+        // Send auth fail message for this queue entry only
+        SendMessageAuthFail(current_msg_detail);
+        queue_index--;
+      }
+      break;
+      
+    case DOOR_TIMEOUT_MSG:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        DBG_L4_PRINTLN(current_msg_detail);
+        // Send door timeout alert message for this queue entry only
+        SendMessageDoorTimeout(current_msg_detail);
+        queue_index--;
+      }
+      break;
+      
+    default:
+      queue_index--;
+      break;
+    }
+  }
+}
+
+// Helper function to read serial data into char array
+// Handles chunked data from GSM module by waiting for complete message
+// Reads until it finds MSG_END_CHAR ('#') or timeout expires
+uint16_t read_serial_to_buffer(Stream &stream, char *buffer, uint16_t max_len)
+{
+  uint16_t index = 0;
+  unsigned long start_time = millis();
+  unsigned long last_char_time = start_time;
+  const unsigned long TIMEOUT_MS = 3000;        // Total timeout: 3 seconds (increased)
+  const unsigned long IDLE_TIMEOUT_MS = 500;    // Timeout if no new data: 500ms (increased)
+  bool has_cmt = false;
+  bool found_end = false;
+  
+  // Clear buffer
+  memset(buffer, 0, max_len);
+  
+  // Read data until we find end marker or timeout
+  while (index < max_len - 1 && (millis() - start_time) < TIMEOUT_MS)
+  {
+    if (stream.available() > 0)
+    {
+      char c = stream.read();
+      if (c == '\0') continue; // Skip null bytes
+      
+      buffer[index++] = c;
+      last_char_time = millis(); // Update last character time
+      
+      // Check if we found +CMT: marker
+      if (index >= 5 && !has_cmt)
+      {
+        if (strncmp(&buffer[index-5], "+CMT:", 5) == 0)
+        {
+          has_cmt = true;
+        }
+      }
+      
+      // If we found the end marker (#), wait a bit more for any trailing data
+      if (c == MSG_END_CHAR)
+      {
+        found_end = true;
+        // Wait up to 200ms after finding '#' to catch any remaining data
+        unsigned long end_wait = millis() + 200;
+        while (millis() < end_wait && index < max_len - 1)
+        {
+          if (stream.available() > 0)
+          {
+            char c2 = stream.read();
+            if (c2 != '\0')
+            {
+              buffer[index++] = c2;
+              last_char_time = millis();
+            }
+          }
+          delay(5);
+        }
+        break; // We found the end marker, exit
+      }
+    }
+    else
+    {
+      // No data available
+      if (index > 0)
+      {
+        unsigned long idle_time = millis() - last_char_time;
+        
+        // CRITICAL: If we have +CMT: but no #, we MUST keep waiting - don't exit!
+        if (has_cmt && !found_end)
+        {
+          // Keep waiting - only exit on total timeout, not idle timeout
+          if (idle_time > IDLE_TIMEOUT_MS)
+          {
+            // Still waiting for more data, continue unless total timeout
+            if ((millis() - start_time) >= TIMEOUT_MS)
+            {
+              break; // Total timeout reached
+            }
+            // Otherwise, keep waiting - don't break!
+          }
+        }
+        // If we don't have +CMT: yet, can exit on idle timeout
+        else if (!has_cmt && idle_time > IDLE_TIMEOUT_MS)
+        {
+          // No +CMT: found and idle for too long, might not be a message
+          break;
+        }
+        // If we already found end marker, we should have broken above
+        else if (found_end)
+        {
+          break;
+        }
+      }
+      delay(10); // Small delay when no data available
+    }
+  }
+  
+  buffer[index] = '\0'; // Null terminate
+  
+  return index;
+}
+
+/**
+ * @brief Constantly polls the GSM module buffer for asynchronous hardware interrupts
+ * @flow
+ * 1. Checks the SIM7600 serial footprint for queued bytes.
+ * 2. Reads the bytes onto the RAM `serial_buffer`.
+ * 3. Looks explicitly for `+CMTI` ping notifications marking new SMS delivery.
+ * 4. Executes `AT+CMGR` to read the message completely from the SIM storage into memory.
+ * 5. Passes the message to `process_string` before instantly triggering memory deletion.
+ */
+void gsm_module_task()
+{
+  while (Serial.available() > 0)
+  {
+    uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
+    if (len > 0)
+    {
+      DBG_L4_PRINTLN(serial_buffer);
+      process_string(serial_buffer, len);
+    }
+  }
+
+  while (SIM7600.available() > 0)
+  {
+    uint16_t len = read_serial_to_buffer(SIM7600, serial_buffer, sizeof(serial_buffer));
+    if (len > 0)
+    {
+      DBG_L4_PRINTLN(serial_buffer);
+      
+      // Look for +CMTI: notification to read the SMS manually
+      char* cmtiPtr = strstr(serial_buffer, "+CMTI:");
+      if (cmtiPtr != NULL) {
+        String incStr = String(cmtiPtr); // Convert from "+CMTI:" onwards
+        int commaIndex = incStr.indexOf(',');
+        if (commaIndex != -1) {
+          int smsIndex = incStr.substring(commaIndex + 1).toInt();
+          Serial.println("Caught +CMTI Notification! Reading SMS from memory...");
+          
+          String smsContent = sendATCommandReturn(("AT+CMGR=" + String(smsIndex)).c_str(), 3000);
+          
+          // Copy to serial buffer so process_string sees the whole multi-line body
+          memset(serial_buffer, '\0', sizeof(serial_buffer));
+          smsContent.toCharArray(serial_buffer, sizeof(serial_buffer) - 1);
+          
+          process_string(serial_buffer, smsContent.length());
+          
+          // Delete it so memory does not fill
+          sendATCommandReturn(("AT+CMGD=" + String(smsIndex)).c_str(), 2000);
+        }
+      } else {
+        process_string(serial_buffer, len);
+      }
+    }
+  }
+}
+uint8_t index;
+int8_t _user_id_from_mobile_number = -1;
+bool find_mobile_number(const char* _input, uint16_t inputLen)
+{
+  // Find "+91" and "\",\"" markers without creating substrings
+  int16_t index1 = -1;
+  int16_t index2 = -1;
+  
+  for (uint16_t i = 0; i < inputLen - 3; i++)
+  {
+    if (_input[i] == '+' && _input[i+1] == '9' && _input[i+2] == '1' && index1 == -1)
+      index1 = i;
+  }
+  
+  for (uint16_t i = 0; i < inputLen - 2; i++)
+  {
+    if (_input[i] == '"' && _input[i+1] == ',' && _input[i+2] == '"' && index2 == -1 && i > index1)
+      index2 = i;
+  }
+
+  DEBUG_PRINT("index1: ");
+  DEBUG_PRINTLN(index1);
+  DEBUG_PRINT("index2: ");
+  DEBUG_PRINTLN(index2);
+
+  if (index1 == -1 || index2 == -1 || index1 >= index2)
+    return false;
+
+  uint16_t mobLen = index2 - index1 - 3;  // -3 for "+91"
+  if (mobLen > 10)
+    return false;
+
+  // Copy mobile number directly from input
+  memset(received_mobile_number_in_char, '\0', sizeof(received_mobile_number_in_char));
+  uint8_t k = 0;
+  
+  for (uint16_t i = 0; i < mobLen && k < 10; i++)
+  {
+    char c = _input[index1 + 3 + i];
+    if (c != ' ' && c != '\0')
+    {
+      received_mobile_number_in_char[k++] = c;
+    }
+  }
+  received_mobile_number_in_char[k] = '\0';
+
+  DEBUG_PRINTLN(F("Mobile number extracted:"));
+  DEBUG_PRINTLN(received_mobile_number_in_char);
+
+  _user_id_from_mobile_number = find_mobile_number_index_from_eeprom(received_mobile_number_in_char);
+  DEBUG_PRINT("User ID from mobile: ");
+  DEBUG_PRINTLN(_user_id_from_mobile_number);
+  
+  return true;
+
+  /*
+    DBG_L4(F("index :"));
+    DBG_L4_PRINTLN(index);
+    if (!index)
+    {
+      return false;
+    }
+    _mobile_number1 = "";
+    _mobile_number1 = _input.substring(index+3,index+3+20);
+    DBG_L4_PRINTLN(_mobile_number1);
+
+    memset(received_mobile_number_in_char,'\0',sizeof(received_mobile_number_in_char));
+    memset(char_array,'\0',sizeof(char_array));
+
+    _mobile_number1.toCharArray(char_array,_mobile_number1.length());
+    DBG_L4_PRINTLN(char_array);
+
+    for(uint8_t i=0;i<_mobile_number1.length();i++){
+      if(char_array[i] == "\"" ){
+        memset(received_mobile_number_in_char, '\0', sizeof(received_mobile_number_in_char));
+        for(uint8_t j=0,k=0;j<i;j++){
+          if (char_array[j] != ' '){
+            received_mobile_number_in_char[k] = char_array[j];
+            k++;
+            DBG_L4_PRINTLN(k);
+          }
+        }
+
+        // if(j == 10){
+
+        DBG_L3(received_mobile_number_index1);
+        DBG_L3(F("mobile number received"));
+        DBG_L3_PRINTLN(received_mobile_number_in_char);
+
+      }
+    }
+    // for (uint8_t i = 0; i < 10; i++)
+
+    // for(uint8_t i=0;i<10;i++){
+    DBG_L3_PRINTLN(received_mobile_number_in_char);
+    DBG_L3_PRINTLN(F("---->"));
+    return 1;
+
+    // for (uint8_t i = 0; i < 10; i++)
+
+    */
+}
+/**
+ * @brief SMS API: Unlocks the door
+ * @flow
+ * 1. Checks if parameters are sufficient (user_id and password).
+ * 2. Parses user_id. Master (01) is verified first.
+ * 3. Regular users verified against master approval block.
+ * 4. Checks time slots and holiday restrictions.
+ * 5. Returns execution status and unlocks the safe via the FSM.
+ */
+uint8_t api_unlock_door()
+{
+  DEBUG_PRINTLN("Unlock Door");
+  print_all_received_para();
+  
+  // Verify mobile number is registered
+  if (_user_id_from_mobile_number == -1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Format: &UNLOCK,<user_id>,<password>#
+  // Two-step process:
+  // Step 1: &UNLOCK,01,<master_password># - Verifies master (user_id 1)
+  // Step 2: &UNLOCK,<user_id>,<user_password># - Verifies user and unlocks
+  // para[0] = user_id (e.g., "01" for master, "02" for user)
+  // para[1] = password
+  // para_count = number of parameters (should be 2)
+  
+  if (para_count < 2)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Parse user_id from para[0]
+  uint8_t _user_id = 0;
+  if (para_len[0] > 0 && para_len[0] <= 2)
+  {
+    // Convert ASCII to number (e.g., "01" -> 1, "02" -> 2, "2" -> 2)
+    for (uint8_t i = 0; i < para_len[0]; i++)
+    {
+      if (para[0][i] >= '0' && para[0][i] <= '9')
+      {
+        _user_id = _user_id * 10 + (para[0][i] - '0');
+      }
+    }
+  }
+  
+  if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
+  {
+    DBG_L1(F("Invalid user_id parsed: "));
+    DBG_L1_PRINTLN(_user_id);
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Parse password from para[1]
+  if (para_len[1] < 4 || para_len[1] > 15)
+  {
+    DBG_L1(F("Invalid password length: "));
+    DBG_L1_PRINTLN(para_len[1]);
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_LENGH_IS_NOT_IN_LIMIT);
+    return CMD_NOT_FOUND;
+  }
+  
+  memset(password, '\0', sizeof(password));
+  copy_array(para[1], &password[0], para_len[1]);
+  pass_length = para_len[1];
+  
+  // STEP 1: If user_id is 1 (master), verify master password and set flag
+  if (_user_id == 1)
+  {
+    if (is_password_valid(1, &password[0], pass_length))
+    {
+      // Master password verified - set flag and timestamp
+      sms_master_verified = true;
+      sms_master_verified_time = millis();
+      DBG_L2_PRINTLN(F("SMS Master verified - waiting for user verification"));
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_UNLOCK_CMD_ACCEPTED);
+      return CMD_EXECUTED;
+    }
+    else
+    {
+      // Master password failed - reset flag
+      sms_master_verified = false;
+      DBG_L2_PRINTLN(F("SMS Master password verification failed"));
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+      return CMD_NOT_FOUND;
+    }
+  }
+  
+  // STEP 2: For non-master users, check if master was verified first
+  if (!sms_master_verified)
+  {
+    DBG_L2_PRINTLN(F("SMS Master not verified - unlock denied"));
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Master is verified, now verify user password
+  if (is_password_valid(_user_id, &password[0], pass_length))
+  {
+    // Check time slot and holidays
+    if (check_if_user_is_allowed_in_time_slot(_user_id))
+    {
+      // Both master and user verified - unlock door
+      user_id = _user_id;
+      door_open_count = door_open_count + 1;
+      write_door_open_count_to_eeprom(door_open_count);
+      display_screen = USER;
+      b_command_open_door = 1;
+      
+      // Reset master verification flag after successful unlock
+      sms_master_verified = false;
+      
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_UNLOCK_CMD_ACCEPTED);
+      return CMD_EXECUTED;
+    }
+    else
+    {
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+      return CMD_NOT_FOUND;
+    }
+  }
+  else
+  {
+    // User password failed - reset master verification
+    sms_master_verified = false;
+    DBG_L2_PRINTLN(F("SMS User password verification failed"));
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+    return CMD_NOT_FOUND;
+  }
+}
+/**
+ * @brief SMS API: Locks the door remotely
+ * @flow
+ * 1. Validates parameters (user_id and password).
+ * 2. Skips time-slot checks (locking is always allowed if verified).
+ * 3. Bypasses the door close FSM and initiates the locking mechanism.
+ */
+uint8_t api_lock_door()
+{
+  DEBUG_PRINTLN("Lock Door");
+  print_all_received_para();
+  
+  // Verify mobile number is registered
+  if (_user_id_from_mobile_number == -1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Format: &LOCK,<user_id>,<password>#
+  // cmd = "LOCK" (stored separately)
+  // para[0] = user_id (e.g., "01")
+  // para[1] = password (e.g., "1234")
+  // para_count = number of parameters (should be 2)
+  
+  if (para_count < 2)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Parse user_id from para[0]
+  uint8_t _user_id = 0;
+  if (para_len[0] > 0 && para_len[0] <= 2)
+  {
+    // Convert ASCII to number (e.g., "01" -> 1, "02" -> 2, "2" -> 2)
+    for (uint8_t i = 0; i < para_len[0]; i++)
+    {
+      if (para[0][i] >= '0' && para[0][i] <= '9')
+      {
+        _user_id = _user_id * 10 + (para[0][i] - '0');
+      }
+    }
+  }
+  
+  if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
+  {
+    DBG_L1(F("Invalid user_id parsed: "));
+    DBG_L1_PRINTLN(_user_id);
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Parse password from para[1]
+  if (para_len[1] < 4 || para_len[1] > 15)
+  {
+    DBG_L1(F("Invalid password length: "));
+    DBG_L1_PRINTLN(para_len[1]);
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_LENGH_IS_NOT_IN_LIMIT);
+    return CMD_NOT_FOUND;
+  }
+  
+  memset(password, '\0', sizeof(password));
+  copy_array(para[1], &password[0], para_len[1]);
+  pass_length = para_len[1];
+  
+  // Validate password for the specified user_id
+  if (is_password_valid(_user_id, &password[0], pass_length))
+  {
+    // Allow locking - no time slot check needed for locking
+    user_id = _user_id;
+    is_displayed = 0;
+    b_command_close_door = 1;
+    DBG_L3_PRINTLN(F("4441"));
+    b_error_in_door_close = 0;
+    display_screen = LOCK_DOOR_STATE;
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_LOCK_CMD_ACCEPTED);
+    return CMD_EXECUTED;
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+    return CMD_NOT_FOUND;
+  }
+}
+//   for (uint8_t i = 0; i < 10; i++)
+//   {
+//   }
+/**
+ * @brief SMS API: Registers a new user
+ * @flow
+ * 1. Strictly isolated to the Master user ID via mobile number verification.
+ * 2. Parses User ID, Mobile Number, and Password.
+ * 3. Copies data safely into global arrays and writes directly to EEPROM.
+ * 4. Sends a welcome/confirmation SMS to the newly registered mobile number.
+ */
+uint8_t api_add_user()
+{
+  DEBUG_PRINTLN("Add User");
+  print_all_received_para();
+
+  // Only master user (index 0) can add users
+  if (_user_id_from_mobile_number != 0)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Format: &ADD_USER,<user_id>,<mobile_number>,<password>#
+  // para[0] = user_id (e.g., "01", "02")
+  // para[1] = mobile_number (10 digits)
+  // para[2] = password (4-15 chars)
+  
+  if (para_count < 3)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Parse user_id from para[0]
+  uint8_t _user_id = 0;
+  if (para_len[0] > 0 && para_len[0] <= 2)
+  {
+    for (uint8_t i = 0; i < para_len[0]; i++)
+    {
+      if (para[0][i] >= '0' && para[0][i] <= '9')
+      {
+        _user_id = _user_id * 10 + (para[0][i] - '0');
+      }
+    }
+  }
+  
+  if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return CMD_NOT_FOUND;
+  }
+  
+  uint8_t user_index = _user_id - 1; // Convert to 0-based index
+  
+  if (is_password_configured[user_index])
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_IS_ALREADY_REGISTERD);
+    return CMD_NOT_FOUND;
+  }
+  
+  if (para_len[1] != 10)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, MOBILE_NUM_LEN_IS_INVALID);
+    return CMD_NOT_FOUND;
+  }
+  
+  if (para_len[2] < 4 || para_len[2] > 15)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_LENGH_IS_NOT_IN_LIMIT);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Extract mobile number and password
+  memset(_mobile_number, '\0', sizeof(_mobile_number));
+  memset(_password, '\0', sizeof(_password));
+  
+  for (uint8_t j = 0, k = 0; j < para_len[1] && k < sizeof(_mobile_number); j++)
+  {
+    if (para[1][j] != ' ')
+    {
+      _mobile_number[k++] = para[1][j];
+    }
+  }
+  
+  for (uint8_t j = 0, k = 0; j < para_len[2] && k < sizeof(_password); j++)
+  {
+    if (para[2][j] != ' ')
+    {
+      _password[k++] = para[2][j];
+    }
+  }
+  
+  // Update EEPROM with new user data
+  update_eeprom_data_at_index(user_index, _mobile_number, _password, (uint8_t)para_len[2]);
+  SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_CREATED);
+  delay(100);
+  SendMessageWithDesc(user_index, USER_CREATED_ACK);
+  return CMD_EXECUTED;
+}
+/**
+ * @brief SMS API: Disarms Live Alarms via OTP
+ * @flow
+ * 1. Scans incoming 6-digit OTP against locally generated OTP arrays.
+ * 2. Provides total system disarm (silences sirens, clears temp/vib/gun point flags).
+ * 3. Re-enables the primary LCD loop.
+ */
+void api_verify_otp()
+{
+  DEBUG_PRINTLN("Verify OTP");
+  print_all_received_para();
+
+  if (_user_id_from_mobile_number != 0)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+    return;
+  }
+  if (para_count > 0 && para_len[0] == 6)
+  {
+    memset(otp, '\0', sizeof(otp));
+    for (uint8_t j = 0; j < 6; j++)
+    {
+      otp[j] = para[0][j] - 48;
+    }
+    b_otp_not_matched = 0;
+    for (uint8_t i = 0; i < 6; i++)
+    {
+      DBG_L4(otp[i]);
+      DBG_L4(F(":"));
+      DBG_L4(generated_otp[i]);
+      DBG_L4_PRINTLN(F(">"));
+      if (otp[i] != generated_otp[i])
+      {
+        b_otp_not_matched = 1;
+      }
+    }
+
+    if (b_otp_not_matched)
+    {
+      b_otp_not_matched = 0;
+      for (uint8_t i = 0; i < 6; i++)
+      {
+        if (otp[i] != master_otp[i])
+        {
+          b_otp_not_matched = 1;
+        }
+      }
+    }
+    if (!b_otp_not_matched)
+    {
+
+      b_gun_point_activation_triggerd = 0;
+      b_vibration_alarm_triggered = 0;
+      b_temperature_alarm_triggerd = 0;
+      b_otp_not_matched = 0;
+      siren_off(siren_pin[0]);
+      siren_off(siren_pin[1]);
+      display_screen = MAIN;
+      otp_length = 0;
+      memset(otp, '\0', sizeof(otp));
+      is_displayed = 0;
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, OTP_MATCHED);
+    }
+    else
+    {
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, OTP_NOT_MATCHED);
+    }
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+  }
+}
+
+/**
+ * @brief SMS API: Removes a user from the system
+ * @flow
+ * 1. Strictly isolated to the Master user ID.
+ * 2. Validates target user index.
+ * 3. Deletes fingerprint from sensor database and clears EEPROM password.
+ * 4. Sends confirmation SMS to the master user.
+ */
+uint8_t api_remove_user()
+{
+  DEBUG_PRINTLN("Remove User");
+  print_all_received_para();
+  
+  // Only master user (index 0) can remove users
+  if (_user_id_from_mobile_number != 0)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Format: &REMOVE_USER,<user_id>#
+  // para[0] = user_id (e.g., "01", "02")
+  
+  if (para_count < 1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Parse user_id from para[0]
+  uint8_t _user_id = 0;
+  if (para_len[0] > 0 && para_len[0] <= 2)
+  {
+    for (uint8_t i = 0; i < para_len[0]; i++)
+    {
+      if (para[0][i] >= '0' && para[0][i] <= '9')
+      {
+        _user_id = _user_id * 10 + (para[0][i] - '0');
+      }
+    }
+  }
+  
+  if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return CMD_NOT_FOUND;
+  }
+  
+  uint8_t user_index = _user_id - 1; // Convert to 0-based index
+  
+  // Cannot remove master user (index 0) or invalid users
+  if (user_index == 0 || user_index >= MAX_NUM_OF_USERS)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  
+  if (!is_password_configured[user_index])
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  
+  clear_password_in_eeprom(user_index);
+  print_eeprom_data(port);
+  SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_REMOVED);
+  return CMD_EXECUTED;
+}
+
+/**
+ * @brief SMS API: Factory Resets the System
+ * @flow
+ * 1. Strictly isolated to the Master user ID.
+ * 2. Requires the explicit master administration password.
+ * 3. Clears all users, resets EEPROM allocations to zero.
+ */
+uint8_t api_factory_reset()
+{
+  // Only master user (index 0) can perform factory reset
+  if (_user_id_from_mobile_number != 0)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Format: &FACT_RESET,<master_password>#
+  // para[0] = master_password
+  
+  if (para_count < 1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  
+  copy_array(&para[0][0], &password[0], para_len[0]);
+  pass_length = para_len[0];
+  
+  if (verify_password())
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, MASTER_RESET_DONE);
+    return CMD_EXECUTED;
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+    return CMD_NOT_FOUND;
+  }
+}
+
+/**
+ * @brief SMS API: Modifies an existing user's password
+ * @flow
+ * 1. Validates the old password provided in the string.
+ * 2. Extracts and dynamically writes the new password to EEPROM.
+ * 3. Can be called by standard users to change their own passwords.
+ */
+uint8_t api_change_password()
+{
+  DEBUG_PRINTLN("Change Password");
+  print_all_received_para();
+  
+  // Verify mobile number is registered
+  if (_user_id_from_mobile_number == -1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Format: &CHANGEPW,<user_id>,<old_password>,<new_password>#
+  // para[0] = user_id (e.g., "01")
+  // para[1] = old_password
+  // para[2] = new_password
+  
+  if (para_count < 3)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Parse user_id from para[0]
+  uint8_t _user_id = 0;
+  if (para_len[0] > 0 && para_len[0] <= 2)
+  {
+    for (uint8_t i = 0; i < para_len[0]; i++)
+    {
+      if (para[0][i] >= '0' && para[0][i] <= '9')
+      {
+        _user_id = _user_id * 10 + (para[0][i] - '0');
+      }
+    }
+  }
+  
+  if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Access control: Only allow if:
+  // 1. Master user (index 0) can change any password, OR
+  // 2. User is changing their own password (user_id matches sender's user_id)
+  // Note: _user_id_from_mobile_number is 0-based index, _user_id is 1-based
+  uint8_t sender_user_id = _user_id_from_mobile_number + 1; // Convert to 1-based
+  
+  if (_user_id_from_mobile_number != 0 && _user_id != sender_user_id)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+    return CMD_NOT_FOUND;
+  }
+  // Check if user exists and password is configured
+  uint8_t user_index = _user_id - 1; // Convert to 0-based index
+  if (user_index >= MAX_NUM_OF_USERS || !is_password_configured[user_index])
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Validate password lengths
+  if (para_len[1] < 4 || para_len[1] > 15)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_LENGH_IS_NOT_IN_LIMIT);
+    return CMD_NOT_FOUND;
+  }
+  if (para_len[2] < 4 || para_len[2] > 15)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_LENGH_IS_NOT_IN_LIMIT);
+    return CMD_NOT_FOUND;
+  }
+  
+  // Extract old and new passwords
+  memset(_password, '\0', sizeof(_password));
+  memset(_password1, '\0', sizeof(_password1));
+  
+  for (uint8_t j = 0, k = 0; j < para_len[1] && k < sizeof(_password); j++)
+  {
+    if (para[1][j] != ' ')
+    {
+      _password[k++] = para[1][j];
+    }
+  }
+  
+  for (uint8_t j = 0, k = 0; j < para_len[2] && k < sizeof(_password1); j++)
+  {
+    if (para[2][j] != ' ')
+    {
+      _password1[k++] = para[2][j];
+    }
+  }
+  
+  // Validate old password
+  if (is_password_valid(_user_id, _password, para_len[1]))
+  {
+    // Update password
+    password_length[user_index] = para_len[2];
+    for (uint8_t i = 0; i < para_len[2] && i < 15; i++)
+    {
+      password_value[user_index][i] = _password1[i];
+    }
+    update_password_to_eeprom(user_index);
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_CHANGED);
+    return CMD_EXECUTED;
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+    return CMD_NOT_FOUND;
+  }
+}
+
+/**
+ * @brief SMS API: Password Recovery
+ * @flow 
+ * 1. Triggered by a registered mobile number.
+ * 2. Extracts the EEPROM password for the matching ID and SMS's it back.
+ * 3. Master users can explicitly specify an index to extract any user's credentials.
+ */
+void api_lost_password()
+{
+  DEBUG_PRINTLN("Lost Password");
+  print_all_received_para();
+  int8_t index = _user_id_from_mobile_number; // find_mobile_number_index_from_eeprom(received_mobile_number_in_char);
+  if (index != -1)
+  {
+    if (index == 0)
+    {
+      if (para_count > 0 && para_len[0] > 0)
+      {
+        uint8_t _user_id = 0;
+        for (uint8_t i = 0; i < para_len[0]; i++)
+        {
+          if (para[0][i] >= '0' && para[0][i] <= '9')
+          {
+            _user_id = _user_id * 10 + (para[0][i] - '0');
+          }
+        }
+        if (_user_id > 0 && _user_id <= MAX_NUM_OF_USERS) {
+          index = _user_id - 1;
+        }
+      }
+    }
+    if ((index < 0 && index > 4) || (index >= 0 && index < 5 && !is_password_configured[index]))
+    {
+      SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NOT_CONFIGURED);
+    }
+    else
+    {
+      SendPWMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, index);
+    }
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, MOBILE_NUMBER_IS_NOT_REGISTERD);
+  }
+}
+
+/**
+ * @brief SMS API: Updates a user's acceptable access time slot
+ * @flow
+ * 1. Strictly isolated to the Master user ID.
+ * 2. Parses in_hour, in_minute, out_hour, and out_minute.
+ * 3. Writes the boundaries to the EEPROM for the specified user block.
+ */
+void api_update_time_slot()
+{
+  DEBUG_PRINTLN("UPDATE_TIME_SLOT");
+  print_all_received_para();
+  
+  // Only master user (index 0) can update time slots
+  if (_user_id_from_mobile_number != 0)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
+    return;
+  }
+  
+  // Format: &TIME_SLOT,<user_id>,<in_hour>,<in_minute>,<out_hour>,<out_minute>#
+  // para[0] = user_id (e.g., "01", "02")
+  // para[1] = in_hour (e.g., "09")
+  // para[2] = in_minute (e.g., "00")
+  // para[3] = out_hour (e.g., "17")
+  // para[4] = out_minute (e.g., "30")
+  
+  if (para_count < 5)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return;
+  }
+  
+  if (para_len[1] < 2 || para_len[2] < 2 || para_len[3] < 2 || para_len[4] < 2)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return;
+  }
+  
+  // Parse user_id from para[0]
+  uint8_t _user_id = 0;
+  if (para_len[0] > 0 && para_len[0] <= 2)
+  {
+    for (uint8_t i = 0; i < para_len[0]; i++)
+    {
+      if (para[0][i] >= '0' && para[0][i] <= '9')
+      {
+        _user_id = _user_id * 10 + (para[0][i] - '0');
+      }
+    }
+  }
+  
+  if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return;
+  }
+  
+  uint8_t user_index = _user_id - 1; // Convert to 0-based index
+  
+  // Check if user exists and password is configured
+  if (user_index >= MAX_NUM_OF_USERS || !is_password_configured[user_index])
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return;
+  }
+  
+  // Parse time values (expecting 2-digit format: "09", "17", etc.)
+  uint8_t _in_time_hour = ((uint8_t)para[1][0] - 48) * 10 + ((uint8_t)para[1][1] - 48);
+  uint8_t _in_time_minute = ((uint8_t)para[2][0] - 48) * 10 + ((uint8_t)para[2][1] - 48);
+  uint8_t _out_time_hour = ((uint8_t)para[3][0] - 48) * 10 + ((uint8_t)para[3][1] - 48);
+  uint8_t _out_time_minute = ((uint8_t)para[4][0] - 48) * 10 + ((uint8_t)para[4][1] - 48);
+  
+  // Validate time values
+  if (_in_time_hour >= 24 || _in_time_minute >= 60 ||
+      _out_time_hour >= 24 || _out_time_minute >= 60)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
+    return;
+  }
+  
+  // Update time slot
+  in_time_hour[user_index] = _in_time_hour;
+  in_time_minute[user_index] = _in_time_minute;
+  out_time_hour[user_index] = _out_time_hour;
+  out_time_minute[user_index] = _out_time_minute;
+  is_in_out_time_configured[user_index] = true;
+  update_password_to_eeprom(user_index);
+  SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, IN_OUT_TIME_UPDATED);
+}
+
+void print_all_received_para()
+{
+  DBG_L4(F("CMD:"));
+  DBG_L4_PRINTLN(cmd);
+  DBG_L4(F("PARA_COUNT:"));
+  DBG_L4_PRINTLN(para_count);
+  for (uint8_t i = 0; i < para_count; i++)
+  {
+    DBG_L4(F("Para["));
+    DBG_L4(i);
+    DBG_L4(F(":"));
+    DBG_L4(para_len[i]);
+    DBG_L4(F("]:"));
+    // for (uint8_t j = 0; j < MAX_CMD_LEN; j++)
+    DBG_L4_PRINTLN(para[i]);
+  }
+}
+
+void print_array(char *arr, uint8_t len)
+{
+  for (uint8_t i = 0; i < len; i++)
+    DBG_L4(arr[i]);
+  DBG_L4_PRINTLN(F("--------->"));
+}
+int8_t find_mobile_number_index_from_eeprom(char *_input_mobile_number)
+{
+  bool b_mobile_number_not_found = 0;
+  for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+  {
+    if (is_password_configured[i])
+    {
+      b_mobile_number_not_found = 0;
+      for (uint8_t j = 0; j < 10; j++)
+      {
+        if (_input_mobile_number[j] != mobile_number[i][j])
+        {
+          b_mobile_number_not_found = 1;
+          break;
+        }
+      }
+      if (!b_mobile_number_not_found)
+      {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
+void add_all_api()
+{
+  add_api("UNLOCK", api_unlock_door);
+  add_api("LOCK", api_lock_door);
+  add_api("ADDUSER", api_add_user);
+  add_api("OTP", api_verify_otp);
+  add_api("REMOVEUSER", api_remove_user);
+  add_api("LOSTPW", api_lost_password);
+  add_api("CHANGEPW", api_change_password);
+  add_api("FACTRESET", api_factory_reset);
+  add_api("TIMESLOT", api_update_time_slot);
+}
+void add_api(char *api_string, void *function)
+{
+  func_list[total_api] = function;
+  total_api = total_api + 1;
+  strcpy(api_list[total_api], api_string);
+}
+
+/**
+ * @brief Identifies requested logic routing by comparing against the API dictionary
+ * @flow
+ * 1. Takes the parsed `cmd` string (e.g. "ADDUSER")
+ * 2. Iterates against the internally registered `api_list` map
+ * 3. Returns the matching execution array index to the dispatcher
+ */
+int8_t find_cmd_index(char *str_cmd)
+{
+  for (uint8_t i = 0; i < total_api + 1; i++)
+  {
+    if (!strcmp((const char *)&api_list[i], str_cmd))
+    {
+      return i;
+    }
+  }
+  return -1;
+}
+
+bool process_request()
+{
+  int8_t cmd_index = find_cmd_index(&cmd[0]);
+  DBG_L4(F("cmd index "));
+  DBG_L4_PRINTLN(cmd_index);
+  uint8_t response = 0;
+  if (cmd_index == -1)
+  {
+    DEBUG_PRINTLN("CMD NOT FOUND!");
+    return 0;
+  }
+  else
+  {
+    response = func_list[cmd_index - 1]();
+    switch (response)
+    {
+    case CMD_NOT_FOUND:
+      break;
+    case CMD_EXECUTED:
+      break;
+    }
+  }
+}
+void copy_array(char *from_array, char *to_array, uint8_t len_to_be_copied)
+{
+  for (uint8_t i = 0, j = 0; i < len_to_be_copied; i++)
+  {
+    // removing whitespaces
+    if (from_array[i] != ' ')
+    {
+      to_array[j] = from_array[i];
+      j++;
+      DBG_L4(from_array[i]);
+    }
+  }
+  DBG_L4_PRINTLN();
+}
+
+/**
+ * @brief Parses individual comma-separated segments from the SMS string
+ * @flow
+ * 1. Checks payload for rigid start `&` and end `#` markers to prevent truncation bugs.
+ * 2. Rapidly splits segments by the global `CMD_SEPARATOR` (Comma).
+ * 3. Populates `cmd` with the target capability.
+ * 4. Pushes all succeeding arguments natively into the 2D `para` array for execution.
+ */
+bool parse_vars(const char* _input, uint16_t inputLen)
+{
+  // Find '&' and '#' markers without creating substrings
+  int16_t index1 = -1;
+  int16_t index2 = -1;
+  
+  for (uint16_t i = 0; i < inputLen; i++)
+  {
+    if (_input[i] == '&' && index1 == -1)
+      index1 = i;
+    if (_input[i] == '#' && index2 == -1)
+      index2 = i;
+  }
+  
+  if (index1 == -1 || index2 == -1 || index1 >= index2)
+  {
+    DEBUG_PRINTLN("parse_vars: Missing & or # markers");
+    return 0;
+  }
+
+  uint8_t counter = 0;
+  uint16_t prev_index = 0;
+  uint16_t segLen = index2 - index1 - 1;
+  
+  if (segLen > 100)
+  {
+    DEBUG_PRINTLN("parse_vars: Segment too long");
+    return 0;
+  }
+
+  // Copy segment directly from input string to char_array
+  // Skip the '&' character (index1+1) and copy until '#'
+  memset(char_array, '\0', sizeof(char_array));
+  for (uint16_t i = 0; i < segLen && i < sizeof(char_array) - 1; i++)
+  {
+    char_array[i] = _input[index1 + 1 + i];
+  }
+  
+  DEBUG_PRINT("parse_vars: Extracted segment: ");
+  DEBUG_PRINTLN(char_array);
+
+  para_count = 0;
+  
+  for (uint16_t i = 0; i <= segLen; i++)  // Changed to <= to handle end of string
+  {
+    // Check for separator, end marker, or end of string
+    bool is_separator = (i < segLen && (char_array[i] == CMD_SEPARATOR || char_array[i] == MSG_END_CHAR));
+    bool is_end = (i == segLen);
+    
+    if (is_separator || is_end)
+    {
+      if (counter == 0)
+      {
+        // Parse command
+        if (i >= MIN_CMD_LEN && i < MAX_CMD_LEN)
+        {
+          memset(cmd, '\0', sizeof(cmd));
+          for (uint16_t j = 0, k = 0; j < i; j++)
+          {
+            // Skip spaces, newlines, and carriage returns
+            if (char_array[j] != ' ' && char_array[j] != '\n' && char_array[j] != '\r')
+            {
+              cmd[k++] = char_array[j];
+            }
+          }
+          prev_index = i;
+          counter++;
+        }
+        else
+        {
+          DEBUG_PRINTLN("cmd not found in parse request");
+          return 0;
+        }
+      }
+      else if (i - prev_index < 2)
+      {
+        // Empty parameter, skip
+        prev_index = i;
+      }
+      else if ((i - prev_index - 1) < MAX_PARA_LEN && para_count < MAX_PARAMETER)
+      {
+        // Parse parameter: extract characters between prev_index+1 and i
+        memset(para[para_count], '\0', sizeof(para[para_count]));
+        uint16_t rawLen = i - prev_index - 1;
+        uint8_t k = 0;
+        
+        for (uint16_t j = 0; j < rawLen && k < MAX_PARA_LEN - 1; j++)
+        {
+          char c = char_array[prev_index + 1 + j];
+          // Skip spaces, null bytes, newlines, and carriage returns
+          if (c != ' ' && c != '\0' && c != '\n' && c != '\r' && c != MSG_END_CHAR)
+          {
+            para[para_count][k++] = c;
+          }
+        }
+        para_len[para_count] = k;  // Store actual length after removing spaces
+        para_count++;
+        prev_index = i;
+        counter++;
+      }
+    }
+  }
+
+  /* Print Para Counts and CMD */
+  DEBUG_PRINT("CMD:");
+  DEBUG_PRINTLN(cmd);
+  DEBUG_PRINT("PARA_COUNT:");
+  DEBUG_PRINTLN(para_count);
+  for (uint8_t i = 0; i < para_count; i++)
+  {
+    DEBUG_PRINT("Para[");
+    DEBUG_PRINT(i);
+    DEBUG_PRINT(":");
+    DEBUG_PRINT(para_len[i]);
+    DEBUG_PRINT("]:");
+    DEBUG_PRINTLN(para[i]);
+  }
+
+  return 1;
+}
+// Helper function to check if string starts with prefix (using char arrays)
+bool str_starts_with(const char *str, const char *prefix, uint16_t str_len)
+{
+  uint16_t prefix_len = strlen(prefix);
+  if (str_len < prefix_len)
+    return false;
+  
+  for (uint16_t i = 0; i < prefix_len; i++)
+  {
+    if (str[i] != prefix[i])
+      return false;
+  }
+  return true;
+}
+
+void process_string(const char *input, uint16_t inputLen)
+{
+  // Check for empty/whitespace-only string
+  if (inputLen == 0 || (inputLen == 2 && input[0] == '\r' && input[1] == '\n'))
+  {
+    DEBUG_PRINTLN("----------------------No String----------------------");
+    return;
+  }
+
+  if (strstr(input, "+CMT:") != NULL || strstr(input, "+CMTI:") != NULL || strstr(input, "+CMGR:") != NULL)
+  {
+    Serial.println(input);
+    // Pass char array directly to avoid substring allocations
+    if (parse_vars(input, inputLen) && find_mobile_number(input, inputLen))
+    {
+      print_all_received_para();
+      process_request();
+    }
+    DEBUG_PRINTLN("----------------------SMS Received----------------------");
+  }
+  else if (str_starts_with(input, "+CMS ERROR:", inputLen))
+  {
+    DEBUG_PRINTLN("----------------------CMS Error----------------------");
+  }
+  else if (str_starts_with(input, "+CMGS:", inputLen))
+  {
+    DEBUG_PRINTLN("----------------------SMS Sent----------------------");
+  }
+  else if (str_starts_with(input, "NO CARRIER", inputLen))
+  {
+    DEBUG_PRINTLN("------------------CARRIER NOT FOUND-----------------");
+    SIM7600.println("AT+CREG?"); // Signal quality test, value range is 0-31 , 31 is the best
+    updateSerial();
+  }
+  else
+  {
+    DEBUG_PRINTLN("----------------------CMD NOT VALIDATED----------------------");
+  }
+}
+
+void print_date_time_to_gsm()
+{
+  SIM7600.print("Date: ");
+  if (date < 10)
+    SIM7600.print("0");
+  SIM7600.print(date);
+  SIM7600.print('/');
+  if (month < 10)
+    SIM7600.print("0");
+  SIM7600.print(month);
+  SIM7600.print('/');
+  SIM7600.print(year);
+  SIM7600.print("\nTime: ");
+  if (minute < 10)
+    SIM7600.print("0");
+  SIM7600.print(hour);
+  SIM7600.print(':');
+  if (minute < 10)
+    SIM7600.print("0");
+
+  SIM7600.print(minute);
+  SIM7600.print(':');
+  if (second < 10)
+    SIM7600.print("0");
+  SIM7600.print(second);
+  SIM7600.print(" ");
+}
+
+// Helper function to copy mobile number to buffer (max 10 digits + null terminator)
+void copy_mobile_number_to_buffer(uint8_t mobile_number_index, char *buffer, uint8_t buffer_size)
+{
+  if (mobile_number_index == RECEIVED_MOBILE_NUMBER_INDEX)
+  {
+    strncpy(buffer, received_mobile_number_in_char, buffer_size - 1);
+    buffer[buffer_size - 1] = '\0';
+  }
+  else
+  {
+    // Copy first 10 characters from mobile_number array
+    uint8_t i;
+    for (i = 0; i < 10 && i < buffer_size - 1 && mobile_number[mobile_number_index][i] != '\0'; i++)
+    {
+      buffer[i] = mobile_number[mobile_number_index][i];
+    }
+    buffer[i] = '\0';
+  }
+}
+
+void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_door_open)
+{
+  char mbn[12];  // 10 digits + null terminator
+  char temp[12]; // 10 digits + null terminator
+  
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(1000); // Delay of 1000 milli seconds or 1 second
+
+  DBG_L4(F("input index :: "));
+  DBG_L4_PRINTLN(mobile_number_index);
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  copy_mobile_number_to_buffer(id - 1, temp, sizeof(temp));
+  
+  DBG_L3(F("AT+CMGS=\"+91"));
+  DBG_L3(mbn);
+  DBG_L3_PRINTLN("\"\r");
+  
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(1000);
+  SIM7600.print("The BMS System Door Has Been ");
+  DBG_L3(F("The BMS System Door Has Been "));
+  if (_is_door_open)
+  {
+    SIM7600.print("Opened");
+    DBG_L3(F("Opened"));
+  }
+  else
+  {
+    SIM7600.print("Closed");
+    DBG_L3_PRINTLN(F("Closed"));
+  }
+  SIM7600.print(" By User-");
+  SIM7600.print(id);
+  SIM7600.print("\nAt ");
+  print_date_time_to_gsm();
+  SIM7600.println();
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(1000);
+  DBG_L2_PRINTLN(F("Message Sent!!"));
+}
+void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
+{
+  char mbn[12];  // 10 digits + null terminator
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(1000);                   // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(1000);
+  SIM7600.print("The BMS System Door Has Sensed High Vibration.\n");
+  SIM7600.print("OTP to Deactivate the sensor for your system is: ");
+  SIM7600.print(generated_otp[0]);
+  SIM7600.print(generated_otp[1]);
+  SIM7600.print(generated_otp[2]);
+  SIM7600.print(generated_otp[3]);
+  SIM7600.print(generated_otp[4]);
+  SIM7600.println(generated_otp[5]);
+
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(1000);
+  DBG_L2_PRINTLN(F("Vib Alarm Message Sent!!"));
+}
+void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
+{
+  char mbn[12];  // 10 digits + null terminator
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(1000);                   // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(1000);
+  SIM7600.print("The BMS System Door Has Sensed High Temperature.\n");
+  SIM7600.print("OTP to Deactivate the sensor for your system is: ");
+  SIM7600.print(generated_otp[0]);
+  SIM7600.print(generated_otp[1]);
+  SIM7600.print(generated_otp[2]);
+  SIM7600.print(generated_otp[3]);
+  SIM7600.print(generated_otp[4]);
+  SIM7600.println(generated_otp[5]);
+
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(1000);
+  DBG_L2_PRINTLN(F("Temp Alarm Message Sent!!"));
+}
+void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
+{
+  char mbn[12];  // 10 digits + null terminator
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(1000);                   // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(1000);
+  SIM7600.print("Duress Alert Is Activated in BMS System.\n");
+  SIM7600.print("OTP to Deactivate the sensor for your system is: ");
+  SIM7600.print(generated_otp[0]);
+  SIM7600.print(generated_otp[1]);
+  SIM7600.print(generated_otp[2]);
+  SIM7600.print(generated_otp[3]);
+  SIM7600.print(generated_otp[4]);
+  SIM7600.println(generated_otp[5]);
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(1000);
+  DBG_L2_PRINTLN(F("Gun Point Message Sent!!"));
+}
+void MakeCallWithNumber(uint8_t mobile_number_index)
+{
+  char mbn[12];  // 10 digits + null terminator
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("ATD+91");
+  SIM7600.print(mbn);
+  SIM7600.println(";"); // ATDxxxxxxxxxx; -- watch out here for semicolon at the end!!
+  DEBUG_PRINTLN("Calling  ");            // print response over serial port
+  delay(1000);
+}
+void SendMessageAuthFail(uint8_t mobile_number_index)
+{
+  char mbn[12];  // 10 digits + null terminator
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(100);
+  SIM7600.print("Authentication Failed!\n");
+  SIM7600.print("The BMS System has detected unauthorized attempt.\n");
+  print_date_time_to_gsm();
+  SIM7600.println();
+
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(100);
+  DBG_L2_PRINTLN(F("Auth Fail Message Sent!!"));
+}
+
+void SendMessageDoorTimeout(uint8_t mobile_number_index)
+{
+  char mbn[12];  // 10 digits + null terminator
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(100);
+  SIM7600.print("Door Timeout Alert!\n");
+  SIM7600.print("The BMS System Door has been open for more than the permitted timeout.\n");
+  SIM7600.print("Timeout Duration: ");
+  SIM7600.print(buzzer_timeout);
+  SIM7600.print(" minutes\n");
+  SIM7600.print("Date: ");
+  print_date_time_to_gsm();
+  SIM7600.println();
+
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(100);
+  DBG_L2_PRINTLN(F("Door Timeout Alert Message Sent!!"));
+}
+
+void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
+{
+  if (mobile_number_index > RECEIVED_MOBILE_NUMBER_INDEX)
+  {
+    return;
+  }
+
+  char mbn[12];  // 10 digits + null terminator
+  const char *string_to_send = NULL;  // Use const char* instead of String
+
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(1000);                  // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  DBG_L3_PRINTLN(mbn);
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+  delay(1000);
+  
+  switch (msg_index)
+  {
+  case USER_NO_REGISTERED:
+    string_to_send = "User is not registered!";
+    break;
+  case PW_LENGH_IS_NOT_IN_LIMIT:
+    string_to_send = "Password length is greater than 15 or less than 4";
+    break;
+  case PW_CHANGED:
+    string_to_send = "Password Changed!!";
+    break;
+  case PW_IS_NO_VALID:
+    string_to_send = "Password is not valid!!";
+    break;
+  case PARA_MISSING:
+    string_to_send = "Parameters are missing!!";
+    break;
+  case USER_REMOVED:
+    string_to_send = "User Removed!";
+    break;
+  case USER_CREATED:
+    string_to_send = "User Created!";
+    break;
+  case USER_CREATED_ACK:
+    string_to_send = "You're registerd for BMS Safe Lock!";
+    break;
+  case USER_IS_ALREADY_REGISTERD:
+    string_to_send = "User is already registered!";
+    break;
+  case MOBILE_NUM_LEN_IS_INVALID:
+    string_to_send = "Mobile number length is less or more";
+    break;
+  case PW_IS_NOT_CONFIGURED:
+    string_to_send = "Password is not configured!";
+    break;
+  case MOBILE_NUMBER_IS_NOT_REGISTERD:
+    string_to_send = "Mobile Number is not registered";
+    break;
+  case MASTER_RESET_DONE:
+    string_to_send = "Master Reset Done!!";
+    break;
+  case PARA_INVALID:
+    string_to_send = "Invalid Parameters!";
+    break;
+  case IN_OUT_TIME_UPDATED:
+    string_to_send = "In Out Time Updated!";
+    break;
+  case NO_ACCESS_ALLOWED:
+    string_to_send = "No Access Allowed!";
+    break;
+  case DOOR_UNLOCK_CMD_ACCEPTED:
+    string_to_send = "Door Unlock Command Accepted!";
+    break;
+  case DOOR_LOCK_CMD_ACCEPTED:
+    string_to_send = "Door Lock Command Accepted!";
+    break;
+  case OTP_MATCHED:
+    string_to_send = "OTP Successfully Applied!";
+    break;
+  case OTP_NOT_MATCHED:
+    string_to_send = "OTP doesn't Matched!";
+    break;
+  default:
+    return; // Invalid message index
+  }
+  
+  if (string_to_send != NULL)
+  {
+    DBG_L3_PRINTLN(string_to_send);
+    SIM7600.println(string_to_send);
+    delay(100);
+    SIM7600.println((char)26); // ASCII code of CTRL+Z
+    delay(1000);
+    ReceiveMessage();
+  }
+}
+void SendPWMessageWithDesc(uint8_t mobile_number_index, uint8_t index)
+{
+  if (mobile_number_index > RECEIVED_MOBILE_NUMBER_INDEX)
+  {
+    return;
+  }
+
+  char mbn[12];  // 10 digits + null terminator
+  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  delay(1000);                  // Delay of 1000 milli seconds or 1 second
+  
+  copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  SIM7600.print("AT+CMGS=\"+91");
+  SIM7600.print(mbn);
+  SIM7600.println("\"\r"); // Replace x with mobile number
+
+  delay(1000);
+  SIM7600.print("PW for user (");
+  SIM7600.print((index + 1));
+  SIM7600.print(") is ");
+  for (uint8_t i = 0; i < 15 && password_value[index][i] != '\0'; i++)
+  {
+    SIM7600.print(password_value[index][i]);
+  }
+  SIM7600.println();
+  DBG_L2_PRINTLN(F("Password Sent!"));
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(1000);
+  ReceiveMessage();
+}
+void SendMessage()
+{
+  SIM7600.println("AT+CMGF=1");                   // Sets the GSM Module in Text Mode
+  delay(1000);                                    // Delay of 1000 milli seconds or 1 second
+  SIM7600.println("AT+CMGS=\"+919428811350\"\r"); // Replace x with mobile number
+  delay(1000);
+  SIM7600.println("This is Batman!!"); // The SMS text you want to send
+  delay(100);
+  SIM7600.println((char)26); // ASCII code of CTRL+Z
+  delay(1000);
+}
+
+void ReceiveMessage()
+{
+  SIM7600.println("AT+CMGF=1"); 
+  delay(500);
+  SIM7600.println("AT+CNMI=2,1"); // Restore robust memory trigger mode!
+  delay(500);
+}
+
+void gsm_init()
+{
+  SIM7600.println("AT");
+  delay(500);
+  SIM7600.println("ATE0");
+  delay(500);
+  SIM7600.println("AT+CREG?");
+  delay(500);
+}
+
+bool sendATCommand(const char* cmd, const char* expectedResponse, unsigned long timeout) {
+  while(SIM7600.available()) { SIM7600.read(); }
+  SIM7600.println(cmd);
+  unsigned long t = millis();
+  String response = "";
+  while(millis() - t < timeout) {
+    if(SIM7600.available()){
+      char c = SIM7600.read();
+      response += c;
+      Serial.print(c);
+      if(response.indexOf(expectedResponse) != -1) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+String sendATCommandReturn(const char* cmd, unsigned long timeout) {
+  while(SIM7600.available()) { SIM7600.read(); }
+  SIM7600.println(cmd);
+  unsigned long t = millis();
+  String response = "";
+  while(millis() - t < timeout) {
+    if(SIM7600.available()){
+      char c = SIM7600.read();
+      response += c;
+      Serial.print(c);
+    }
+  }
+  return response;
+}
+
+/**
+ * @brief Robust bootloader sequence tightly configuring the SIM7600
+ * @flow
+ * 1. Ensures network registration (`+CREG: 0,1` or `0,2`).
+ * 2. Routes physical hardware storage properly to `ME`.
+ * 3. Formats textual encoding headers (`AT+CMGF=1`).
+ * 4. Cleans out archaic/malformed existing texts stored loosely on SIM memory.
+ * 5. Sets module strictly to `AT+CNMI=2,1` configuration to rely on safer buffer pings over volatile direct receipt.
+ */
+void gsm_module_init()
+{
+  Serial.println("Initializing SIM7600 for Robust SMS Reception...");
+  
+  // Give module 5 seconds to power on
+  delay(5000);
+
+  // Send basic AT until OK (Module is alive)
+  Serial.println("Checking connection...");
+  while(!sendATCommand("AT", "OK", 1000)) {
+     Serial.println("Waiting for AT response...");
+     delay(1000);
+  }
+
+  // Wait for SIM card to be ready
+  Serial.println("Checking SIM card status...");
+  while(!sendATCommand("AT+CPIN?", "READY", 1000)) {
+     Serial.println("Waiting for SIM to be READY...");
+     delay(2000);
+  }
+
+  // Wait for Network Registration (0,1 or 0,5)
+  Serial.println("Waiting for Network Registration...");
+  bool registered = false;
+  for(int i=0; i<30; i++) { // Wait up to 60 seconds
+     String resp = sendATCommandReturn("AT+CREG?", 1000);
+     if(resp.indexOf("0,1") != -1 || resp.indexOf("0,5") != -1 || resp.indexOf("1,1") != -1 || resp.indexOf("1,5") != -1) {
+        registered = true;
+        break;
+     }
+     Serial.println("Module searching for network...");
+     delay(2000);
+  }
+
+  if(registered) {
+    Serial.println("Network Registered successfully!");
+  } else {
+    Serial.println("Warning: Network might not be registered yet. Proceeding anyway.");
+  }
+  
+  delay(2000);
+  
+  sendATCommand("AT+CPMS=\"ME\",\"ME\",\"ME\"", "OK", 2000);
+  sendATCommand("AT+CSCS=\"GSM\"", "OK", 1000);
+  sendATCommand("AT+CMGF=1", "OK", 1000);
+  sendATCommand("AT+CSMP=17,167,0,0", "OK", 1000);
+  sendATCommand("AT+CMGDA=\"DEL ALL\"", "OK", 3000);
+  sendATCommand("AT+CNMI=2,1", "OK", 1000);
+  
+  add_all_api(); // Initialize the command mapping array!
+  
+  Serial.println("SIM7600 Ready. Waiting for messages...");
+}
+void updateSerial()
+{
+  delay(500);
+  if (SIM7600.available())
+  {
+    call = SIM7600.read();
+    DEBUG_PRINT(call);
+  }
+}
+void MakeCall()
+{
+  SIM7600.println("ATD+919428811350;"); // ATDxxxxxxxxxx; -- watch out here for semicolon at the end!!
+  DEBUG_PRINTLN("Calling  ");           // print response over serial port
+  delay(1000);
+}
+
+void HangupCall()
+{
+  SIM7600.println("ATH");
+  DEBUG_PRINTLN("Hangup Call");
+  delay(1000);
+}
+
+void ReceiveCall()
+{
+  SIM7600.println("ATA");
+  delay(1000);
+  {
+    call = SIM7600.read();
+    DEBUG_PRINT(call);
+  }
+}
+
+void RedialCall()
+{
+  SIM7600.println("ATDL");
+  DEBUG_PRINTLN("Redialing");
+  delay(1000);
+}
+
+void ResetModule()
+{
+  SIM7600.println("AT&F");
+  DEBUG_PRINTLN("Resetting Module");
+  delay(1000);
+  SIM7600.println("AT&F1");
+  DEBUG_PRINTLN("Resetting Module");
+  delay(1000);
+}
+/*************** GSM CODE [END] ****************/
+/******** BUZZER [START] *********/
+
+// Buzzer constants
+#define BUZZER_INTERVAL_MS 1000UL      // Buzzer toggle interval (1 second)
+#define BUZZER_TONE_DURATION_MS 200    // Duration of each beep
+
+// Optimized buzzer task
+void buzzer_task()
+{
+  if (!b_buzzer_on)
+  {
+    noTone(buzzer_pin);
+    return;  // Early return - most common case
+  }
+  
+  // Cache millis() to avoid multiple calls
+  unsigned long current_millis = millis();
+  
+  // Toggle buzzer every second
+  if (current_millis - buzzer_timer > BUZZER_INTERVAL_MS)
+  {
+    buzzer_timer = current_millis;  // Update timer inline
+    
+    // Toggle buzzer state
+    b_sub_buzzer_on = !b_sub_buzzer_on;
+    
+    if (b_sub_buzzer_on)
+    {
+      tone(buzzer_pin, pgm_read_word(&melody[1]), BUZZER_TONE_DURATION_MS);
+    }
+    else
+    {
+      noTone(buzzer_pin);
+    }
+  }
+}
+/******** BUZZER [END] *********/
+const int LCD_GND = A11;
+const int LCD_VCC = A10;
+void lcd_power_on()
+{
+  digitalWrite(LCD_GND, 0);
+  digitalWrite(LCD_VCC, 1);
+  display_screen = MAIN;
+  is_displayed = 0;
+  lcd_init();
+}
+void lcd_power_off()
+{
+  finger.LEDcontrol(FINGERPRINT_LED_ON, 0, FINGERPRINT_LED_OFF);
+}
+
+void setup()
+{
+
+  Serial.begin(115200);
+  SIM7600.begin(115200); // Setting the baud rate of GSM Module
+  finger_print_sensor_init();
+  wdt_disable();
+  pinMode(LCD_GND, OUTPUT);
+  pinMode(LCD_VCC, OUTPUT);
+  rtc_begin();
+  gpio_init();
+  lcd_power_on();
+  lcd_init();
+  sd_init();
+
+
+  temp_sen_init();
+  DBG_L2_PRINTLN(F("Started"));
+  init_eeprom();
+  port = &Serial;
+  DBG_L2_PRINTLN(F("EEPROM Write Started"));
+  print_eeprom_data(port);
+  DBG_L2_PRINTLN(F("EEPROM Write Complete"));
+  
+  // Print holidays at startup
+  read_holidays_from_eeprom();
+  print_holidays();
+  init_dc_motor();
+  gsm_module_init();
+  init_flash_drive();
+  lcd_init_screen();
+  //   uint8_t generated_otp[6] = {
+  //     random(0, 9),
+  //     random(0, 9),
+  //     random(0, 9),
+  //     random(0, 9),
+  //     random(0, 9),
+  //     random(0, 9),
+  // for (uint8_t i = 0; i < 6; i++)
+  generate_random_otp();
+  flash_drive_task();
+  display_on_timer = millis();
+  // put your setup code here, to run once:
+  // Master user (ID 1) existence is tracked by is_password_configured[0]
+}
+bool test = 1;
+void loop()
+{
+  wdt_reset();
+  if (is_door_close())
+    temp_task();
+  // put your main code here, to run repeatedly:
+  rtc_task();
+  lcd_task();
+  gpio_task();
+  dc_motor_task();
+  gsm_module_task();
+  gsm_housekeeping_task();
+  gun_point_activation_fsm();
+  flash_drive_task();
+  buzzer_task();
+}

@@ -1,0 +1,175 @@
+#include "sensor_module.h"
+#include "logger.h"
+#include "rtc_module.h"
+
+// Declare local instances or references if needed
+const int vibration_sensor_pin = 43;
+
+bool b_temperature_alarm_triggerd = 0;
+bool b_vibration_alarm_triggered = 0;
+bool b_gun_point_activation_triggerd = 0;
+
+uint8_t gpa_state = GPA_SEND_MESSAGE;
+uint8_t current_gpa_user_id = 0;
+
+int temperature_value = 0;
+int prev_temperature_value = 0;
+unsigned long temperature_read_timeout = 0;
+unsigned int temperature_read_time_interval = 10000;
+#define TEMPERATURE_THRESHOLD 60
+
+bool vibration_sensor_pin_status = 0;
+bool prev_vibration_sensor_pin_status = 0;
+bool vibration_started = 0;
+unsigned long vibration_read_timer;
+const uint16_t vibration_read_time_interval = 10000UL;
+uint8_t vibration_change_counter = 0;
+uint8_t temperature_counter = 0;
+
+// OTP arrays
+uint8_t generated_otp[6] = {0};
+char char_generated_otp[6] = {0};
+uint8_t master_otp[6] = {4, 5, 5, 5, 5, 6};
+
+const int siren_pin[2] = {27, 28};
+bool b_siren_on = 0;
+
+void siren_on(uint8_t i) {
+    digitalWrite(i, 1);
+    b_siren_on = 1;
+}
+
+void siren_off(uint8_t i) {
+    digitalWrite(i, 0);
+    b_siren_on = 0;
+}
+
+void temp_sen_init() {
+    sensors.begin();
+    pinMode(vibration_sensor_pin, OUTPUT);
+    digitalWrite(siren_pin[0], 0);
+    digitalWrite(siren_pin[1], 0);
+}
+
+void read_temperature() {
+    sensors.requestTemperatures();
+    temperature_value = sensors.getTempCByIndex(0);
+    temperature_read_timeout = millis();
+}
+
+void temp_task() {
+    unsigned long current_millis = millis();
+    
+    // VIBRATION SENSOR
+    vibration_sensor_pin_status = digitalRead(vibration_sensor_pin);
+    if (prev_vibration_sensor_pin_status != vibration_sensor_pin_status) {
+        prev_vibration_sensor_pin_status = vibration_sensor_pin_status;
+        if (vibration_sensor_pin_status) {
+            if (vibration_change_counter < 2) {
+                vibration_started = 1;
+                LOG_INFO(MOD_SENS, "Vibration Started!");
+            }
+            if (vibration_started) {
+                vibration_read_timer = current_millis;
+            }
+            vibration_change_counter++;
+            LOG_DEBUG_VAL(MOD_SENS, "Vibration_counter", vibration_change_counter);
+            
+            if (vibration_change_counter > 15) {
+                vibration_started = 0;
+                b_vibration_alarm_triggered = 1;
+                generate_random_otp();
+                // We'd tell LCD to turn off here, but that is UI linked.
+                siren_on(siren_pin[0]); siren_on(siren_pin[1]);
+                vibration_change_counter = 0;
+                LOG_WARN(MOD_SENS, "Vibration alarm Triggered!!");
+                if (gpa_state == GPA_DO_NOTHING) {
+                    gpa_state = GPA_SEND_MESSAGE;
+                }
+            }
+        }
+    }
+    
+    if (vibration_started && (current_millis - vibration_read_timer > vibration_read_time_interval)) {
+        vibration_started = 0;
+        vibration_change_counter = 0;
+        LOG_INFO(MOD_SENS, "Vibration Stopped!");
+    }
+    
+    // TEMPERATURE SENSOR
+    if (current_millis - temperature_read_timeout > temperature_read_time_interval) {
+        read_temperature();
+        if (prev_temperature_value != temperature_value) {
+            prev_temperature_value = temperature_value;
+            if (temperature_value > TEMPERATURE_THRESHOLD) {
+                if (temperature_counter < 200) temperature_counter++;
+                if (temperature_counter > 3) {
+                    b_temperature_alarm_triggerd = 1;
+                    generate_random_otp();
+                    siren_on(siren_pin[0]); siren_on(siren_pin[1]);
+                    temperature_counter = 0;
+                    if (gpa_state == GPA_DO_NOTHING) {
+                        gpa_state = GPA_SEND_MESSAGE;
+                    }
+                }
+            } else {
+                if (!b_temperature_alarm_triggerd) temperature_counter = 0;
+            }
+        }
+        LOG_DEBUG_VAL(MOD_SENS, "Temperature value is", temperature_value);
+    }
+}
+
+// GSM Update Queue extern definition (must be resolved at link time)
+extern void update_queue(uint8_t message_type, uint8_t user_id);
+// External references to auth users array
+extern bool is_password_configured[MAX_NUM_OF_USERS];
+extern uint8_t user_id;
+extern uint8_t queue_index;
+
+void gun_point_activation_fsm() {
+    if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered) {
+        switch (gpa_state) {
+        case GPA_DO_NOTHING: break;
+        case GPA_SEND_MESSAGE:
+            if (queue_index < 1) {
+                for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++) {
+                    if (b_temperature_alarm_triggerd) {
+                        if (is_password_configured[i]) update_queue(TEMP_ALARM_MSG, i);
+                    } else if (b_vibration_alarm_triggered) {
+                        if (is_password_configured[i]) update_queue(VIBRATION_ALARM_MSG, i);
+                    } else { // Gun point
+                        if (is_password_configured[i] && (user_id - 1) != i) update_queue(GUN_POINT_MSG, i);
+                    }
+                }
+                gpa_state = GPA_CALL;
+            }
+            break;
+        case GPA_CALL:
+            if (queue_index < 1) {
+                for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++) {
+                    if (b_temperature_alarm_triggerd) {
+                        if (is_password_configured[i]) update_queue(GUN_POINT_CALL, i);
+                    } else {
+                        if (is_password_configured[i] && (user_id - 1) != i) update_queue(GUN_POINT_CALL, i);
+                    }
+                }
+                gpa_state = GPA_SEND_MESSAGE;
+            }
+            break;
+        }
+    }
+}
+
+void generate_random_otp() {
+    uint16_t temp = (minute + (hour * 10)) / 10;
+    if (temp > 10) temp = temp / 10;
+    if (temp > 10) temp = temp / 10;
+    
+    for (uint8_t i = 0; i < 6; i++) {
+        generated_otp[i] = random(temp, 9);
+        char_generated_otp[i] = generated_otp[i] + '0';
+    }
+    LOG_INFO(MOD_SENS, "Generated OTP: ");
+    LOG_INFO(MOD_SENS, char_generated_otp);
+}

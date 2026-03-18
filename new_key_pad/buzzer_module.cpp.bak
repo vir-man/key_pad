@@ -1,0 +1,40 @@
+#include "buzzer_module.h"
+
+// Buzzer constants
+#define BUZZER_INTERVAL_MS 1000UL      // Buzzer toggle interval (1 second)
+#define BUZZER_TONE_DURATION_MS 200    // Duration of each beep
+
+const int buzzer_pin = 45;
+bool b_buzzer_on = 0;
+bool b_sub_buzzer_on = 0;
+unsigned long buzzer_timer = 0;
+
+void buzzer_task()
+{
+  if (!b_buzzer_on)
+  {
+    noTone(buzzer_pin);
+    return;  // Early return - most common case
+  }
+  
+  // Cache millis() to avoid multiple calls
+  unsigned long current_millis = millis();
+  
+  // Toggle buzzer every second
+  if (current_millis - buzzer_timer > BUZZER_INTERVAL_MS)
+  {
+    buzzer_timer = current_millis;  // Update timer inline
+    
+    // Toggle buzzer state
+    b_sub_buzzer_on = !b_sub_buzzer_on;
+    
+    if (b_sub_buzzer_on)
+    {
+      tone(buzzer_pin, pgm_read_word(&melody[1]), BUZZER_TONE_DURATION_MS);
+    }
+    else
+    {
+      noTone(buzzer_pin);
+    }
+  }
+}

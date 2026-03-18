@@ -1,0 +1,48 @@
+#include "logger.h"
+
+void log_print(uint8_t level, const char* module, const char* msg) {
+    if (level <= DEBUG_LEVEL) {
+        Serial.print(F("["));
+        Serial.print(module);
+        Serial.print(F("] "));
+        switch(level) {
+            case LOG_LEVEL_ERROR: Serial.print(F("[ERR] ")); break;
+            case LOG_LEVEL_WARN:  Serial.print(F("[WRN] ")); break;
+            case LOG_LEVEL_INFO:  Serial.print(F("[INF] ")); break;
+            case LOG_LEVEL_DEBUG: Serial.print(F("[DBG] ")); break;
+        }
+        Serial.println(msg);
+    }
+}
+
+void log_print(uint8_t level, const char* module, const __FlashStringHelper* msg) {
+    if (level <= DEBUG_LEVEL) {
+        Serial.print(F("["));
+        Serial.print(module);
+        Serial.print(F("] "));
+        switch(level) {
+            case LOG_LEVEL_ERROR: Serial.print(F("[ERR] ")); break;
+            case LOG_LEVEL_WARN:  Serial.print(F("[WRN] ")); break;
+            case LOG_LEVEL_INFO:  Serial.print(F("[INF] ")); break;
+            case LOG_LEVEL_DEBUG: Serial.print(F("[DBG] ")); break;
+        }
+        Serial.println(msg);
+    }
+}
+
+void log_print_val(uint8_t level, const char* module, const char* msg, int val) {
+    if (level <= DEBUG_LEVEL) {
+        Serial.print(F("["));
+        Serial.print(module);
+        Serial.print(F("] "));
+        switch(level) {
+            case LOG_LEVEL_ERROR: Serial.print(F("[ERR] ")); break;
+            case LOG_LEVEL_WARN:  Serial.print(F("[WRN] ")); break;
+            case LOG_LEVEL_INFO:  Serial.print(F("[INF] ")); break;
+            case LOG_LEVEL_DEBUG: Serial.print(F("[DBG] ")); break;
+        }
+        Serial.print(msg);
+        Serial.print(F(": "));
+        Serial.println(val);
+    }
+}
