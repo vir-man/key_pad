@@ -19,11 +19,19 @@ All SMS commands sent to the SIM7600 number must strictly follow the format:
 ## 🚪 Door Control Commands
 
 ### 1. UNLOCK DOOR
-Unlocks the safe door. This follows a two-step verification if done by standard users (must be master verified first) or a single step if done by the master.
-*   **API:** `UNLOCK`
-*   **Syntax:** `&UNLOCK,<user_id>,<password>#`
-*   **Example (Master):** `&UNLOCK,01,MyMasterPass123#`
-*   **Example (User):** `&UNLOCK,02,UserPass456#`
+Unlocks the safe door remotely. This system enforces a rigorous Two-Step Dual Authentication protocol for standard users.
+
+**Step 1: Master Verification (Required first)**
+*   **Syntax:** `&UNLOCK,01,<master_password>#`
+*   **Example:** `&UNLOCK,01,MyMasterPass123#`
+*   *Action:* Validates the Master User. Once verified, the system opens a **60-second timeout window** where a standard user is permitted to unlock the safe.
+
+**Step 2: User Validation (Within the 60-second window)**
+*   **Syntax:** `&UNLOCK,<user_id>,<user_password>#`
+*   **Example:** `&UNLOCK,02,UserPass456#`
+*   *Action:* Validates the specific User ID and checks Time Slots/Holidays. If successful within the 60-second master window, the door unlocks.
+
+*Note: The Master user (`01`) cannot unlock the door single-handedly. Their credentials strictly serve as administrative pre-authorization. A standard user MUST always execute Step 2 to physically unlatch the vault.*
 
 ### 2. LOCK DOOR
 Locks the safe door without needing to check time-slots.
