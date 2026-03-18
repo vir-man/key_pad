@@ -6316,7 +6316,7 @@ void add_all_api()
   add_api("REMOVEUSER", api_remove_user);
   add_api("LOSTPW", api_lost_password);
   add_api("CHANGEPW", api_change_password);
-  add_api("FACT_RESET", api_factory_reset);
+  add_api("FACTRESET", api_factory_reset);
   add_api("TIMESLOT", api_update_time_slot);
 }
 void add_api(char *api_string, void *function)

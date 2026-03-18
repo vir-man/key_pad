@@ -70,9 +70,9 @@ Restricts a specific user's physical access to a daily window of time (24-hour f
 
 ### 7. FACTORY RESET
 Erases all EEPROM states, removes all users, and factory resets the BMS system.
-*   **API:** `FACT_RESET`
-*   **Syntax:** `&FACT_RESET,<master_password>#`
-*   **Example:** `&FACT_RESET,MyMasterPass123#`
+*   **API:** `FACTRESET`
+*   **Syntax:** `&FACTRESET,<master_password>#`
+*   **Example:** `&FACTRESET,MyMasterPass123#`
 
 ---
 
