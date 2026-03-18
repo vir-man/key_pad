@@ -625,7 +625,7 @@ uint8_t holiday_count = 0;
 // Removed holidays[] array - read from EEPROM directly to save 60 bytes RAM
 
 char _mobile_number[10] = {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0'};
-char _password[15] = {/*'A', 'B',*/ '1', '2', '3', '4', '5', '6', '7', '8', '9', '3', '1', '2', 'Z', 'A', 'B'};
+char _password[15] = {/*'A', 'B',*/ '1', '2', '3', '4', '5', '6', '7', '8', '9', '3', '1', '2', 'Z'};
 char _password1[15];
 HardwareSerial *port;
 
@@ -1387,7 +1387,7 @@ const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
-// #define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
 
 
 bool is_door_aligned_by_ir()
@@ -5042,11 +5042,11 @@ char msg;
 char call;
 
 // Buffer for reading serial data (replaced String a, b)
-char serial_buffer[100];  // Reduced from 150 to save 50 bytes RAM
+char serial_buffer[200];  // Increased to 200 to safely house the full, massive multi-line +CMGR payload
 uint8_t serial_buffer_index = 0;
 uint8_t i = 0;
 
-char char_array[60];  // Reduced from 80 to save 20 bytes RAM
+char char_array[100];  // Increased just to safely hold large parameter counts
 // uint8_t received_mobile_number[10];
 char received_mobile_number_in_char[11];
 // char received_mnic[10];  // Removed unused buffer to save 10 bytes RAM
@@ -5078,28 +5078,28 @@ functionPtr func_list[10] = {};
 uint8_t total_api = 0;
 static char api_list[MAX_API + 1][20] = {"{\"status\":\"failure\",\"data\":\"ANF or WSP \"}"};
 /* api function pointer array variables [END] */
-void gsm_module_init()
-{
+// void gsm_module_init()
+// {
 
-  // Serial.println("GSM SIM7600 BEGIN");
-  // Serial.println("Enter character for control option:");
-  // Serial.println("a : Send Message ");
-  // Serial.println("b : Make a Call ");
-  // Serial.println("c : Hang Up Call ");
-  // Serial.println("d : RedialCall");
-  // Serial.println("e : Receive Call ");
-  // Serial.println("f : Receive Message ");
-  // Serial.println("g : Reset Module ");
-  // Serial.println();
-  ResetModule();
-  delay(5000);
-  gsm_init();
-  add_all_api();
-  DBG_L3_PRINTLN(F("FULL GSM CODE ---------->>>>"));
-  ReceiveMessage();
-  //  process_string(temp);
-  delay(100);
-}
+//   // Serial.println("GSM SIM7600 BEGIN");
+//   // Serial.println("Enter character for control option:");
+//   // Serial.println("a : Send Message ");
+//   // Serial.println("b : Make a Call ");
+//   // Serial.println("c : Hang Up Call ");
+//   // Serial.println("d : RedialCall");
+//   // Serial.println("e : Receive Call ");
+//   // Serial.println("f : Receive Message ");
+//   // Serial.println("g : Reset Module ");
+//   // Serial.println();
+//   ResetModule();
+//   delay(5000);
+//   gsm_init();
+//   add_all_api();
+//   DBG_L3_PRINTLN(F("FULL GSM CODE ---------->>>>"));
+//   ReceiveMessage();
+//   //  process_string(temp);
+//   delay(100);
+// }
 
 // String otp = "024545";
 uint32_t call_start_time = millis();
@@ -5359,7 +5359,6 @@ void gsm_module_task()
 {
   while (Serial.available() > 0)
   {
-    // Use buffered reading to capture complete messages
     uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
     if (len > 0)
     {
@@ -5367,41 +5366,37 @@ void gsm_module_task()
       process_string(serial_buffer, len);
     }
   }
-  // return;
-  /*
-   if (Serial.available() > 0)
-     switch (Serial.read())
-     {
-     case 'a':
-       SendMessage();
-       break;
-     case 'b':
-       MakeCall();
-       break;
-     case 'c':
-       HangupCall();
-       break;
-     case 'd':
-       RedialCall();
-       break;
-     case 'e':
-       ReceiveCall();
-       break;
-     case 'f':
-       ReceiveMessage();
-       break;
-     case 'g':
-       ResetModule();
-       break;
-     }
-     */
+
   while (SIM7600.available() > 0)
   {
     uint16_t len = read_serial_to_buffer(SIM7600, serial_buffer, sizeof(serial_buffer));
     if (len > 0)
     {
       DBG_L4_PRINTLN(serial_buffer);
-      process_string(serial_buffer, len);
+      
+      // Look for +CMTI: notification to read the SMS manually
+      char* cmtiPtr = strstr(serial_buffer, "+CMTI:");
+      if (cmtiPtr != NULL) {
+        String incStr = String(cmtiPtr); // Convert from "+CMTI:" onwards
+        int commaIndex = incStr.indexOf(',');
+        if (commaIndex != -1) {
+          int smsIndex = incStr.substring(commaIndex + 1).toInt();
+          Serial.println("Caught +CMTI Notification! Reading SMS from memory...");
+          
+          String smsContent = sendATCommandReturn(("AT+CMGR=" + String(smsIndex)).c_str(), 3000);
+          
+          // Copy to serial buffer so process_string sees the whole multi-line body
+          memset(serial_buffer, '\0', sizeof(serial_buffer));
+          smsContent.toCharArray(serial_buffer, sizeof(serial_buffer) - 1);
+          
+          process_string(serial_buffer, smsContent.length());
+          
+          // Delete it so memory does not fill
+          sendATCommandReturn(("AT+CMGD=" + String(smsIndex)).c_str(), 2000);
+        }
+      } else {
+        process_string(serial_buffer, len);
+      }
     }
   }
 }
@@ -5822,7 +5817,7 @@ uint8_t api_add_user()
   memset(_mobile_number, '\0', sizeof(_mobile_number));
   memset(_password, '\0', sizeof(_password));
   
-  for (uint8_t j = 0, k = 0; j < para_len[1] && k < sizeof(_mobile_number) - 1; j++)
+  for (uint8_t j = 0, k = 0; j < para_len[1] && k < sizeof(_mobile_number); j++)
   {
     if (para[1][j] != ' ')
     {
@@ -5830,7 +5825,7 @@ uint8_t api_add_user()
     }
   }
   
-  for (uint8_t j = 0, k = 0; j < para_len[2] && k < sizeof(_password) - 1; j++)
+  for (uint8_t j = 0, k = 0; j < para_len[2] && k < sizeof(_password); j++)
   {
     if (para[2][j] != ' ')
     {
@@ -5842,7 +5837,7 @@ uint8_t api_add_user()
   update_eeprom_data_at_index(user_index, _mobile_number, _password, (uint8_t)para_len[2]);
   SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_CREATED);
   delay(100);
-  SendMessageWithDesc(_user_id, USER_CREATED_ACK);
+  SendMessageWithDesc(user_index, USER_CREATED_ACK);
   return CMD_EXECUTED;
 }
 void api_verify_otp()
@@ -6085,7 +6080,7 @@ uint8_t api_change_password()
   memset(_password, '\0', sizeof(_password));
   memset(_password1, '\0', sizeof(_password1));
   
-  for (uint8_t j = 0, k = 0; j < para_len[1] && k < sizeof(_password) - 1; j++)
+  for (uint8_t j = 0, k = 0; j < para_len[1] && k < sizeof(_password); j++)
   {
     if (para[1][j] != ' ')
     {
@@ -6093,7 +6088,7 @@ uint8_t api_change_password()
     }
   }
   
-  for (uint8_t j = 0, k = 0; j < para_len[2] && k < sizeof(_password1) - 1; j++)
+  for (uint8_t j = 0, k = 0; j < para_len[2] && k < sizeof(_password1); j++)
   {
     if (para[2][j] != ' ')
     {
@@ -6130,9 +6125,19 @@ void api_lost_password()
   {
     if (index == 0)
     {
-      if (para_count > 0)
+      if (para_count > 0 && para_len[0] > 0)
       {
-        index = (uint8_t)para[0][0] - 48 - 1;
+        uint8_t _user_id = 0;
+        for (uint8_t i = 0; i < para_len[0]; i++)
+        {
+          if (para[0][i] >= '0' && para[0][i] <= '9')
+          {
+            _user_id = _user_id * 10 + (para[0][i] - '0');
+          }
+        }
+        if (_user_id > 0 && _user_id <= MAX_NUM_OF_USERS) {
+          index = _user_id - 1;
+        }
       }
     }
     if ((index < 0 && index > 4) || (index >= 0 && index < 5 && !is_password_configured[index]))
@@ -6306,13 +6311,13 @@ void add_all_api()
 {
   add_api("UNLOCK", api_unlock_door);
   add_api("LOCK", api_lock_door);
-  add_api("ADD_USER", api_add_user);
+  add_api("ADDUSER", api_add_user);
   add_api("OTP", api_verify_otp);
-  add_api("REMOVE_USER", api_remove_user);
+  add_api("REMOVEUSER", api_remove_user);
   add_api("LOSTPW", api_lost_password);
   add_api("CHANGEPW", api_change_password);
   add_api("FACT_RESET", api_factory_reset);
-  add_api("TIME_SLOT", api_update_time_slot);
+  add_api("TIMESLOT", api_update_time_slot);
 }
 void add_api(char *api_string, void *function)
 {
@@ -6521,9 +6526,9 @@ void process_string(const char *input, uint16_t inputLen)
     return;
   }
 
-  if (str_starts_with(input, "+CMT:", inputLen))
+  if (strstr(input, "+CMT:") != NULL || strstr(input, "+CMTI:") != NULL || strstr(input, "+CMGR:") != NULL)
   {
-    DEBUG_PRINTLN(input);
+    Serial.println(input);
     // Pass char array directly to avoid substring allocations
     if (parse_vars(input, inputLen) && find_mobile_number(input, inputLen))
     {
@@ -6950,31 +6955,107 @@ void SendMessage()
 
 void ReceiveMessage()
 {
-  SIM7600.println("AT+CNMI=2,2,0,0,0"); // AT Command to recieve a live SMS
+  SIM7600.println("AT+CMGF=1"); 
   delay(500);
-  SIM7600.println("AT+CMGF=1"); // AT Command to recieve a live SMS
+  SIM7600.println("AT+CNMI=2,1"); // Restore robust memory trigger mode!
   delay(500);
-  // delay(1000);
-  // if (SIM7600.available() > 0)
-  // {
-  //   msg = SIM7600.read();
-  //   DEBUG_PRINT(msg);
-  // }
-  /*
-  Sample string output for receiving message
-  -> +CMT: "+919428811350","","21/12/24,11:48:33+22"
-  -> This is test line 1
-*/
 }
+
 void gsm_init()
 {
-  SIM7600.println("AT"); // Once the handshake test is successful, it will back to OK
-  updateSerial();
-  SIM7600.println("ATE0"); // Once the handshake test is successful, it will back to OK
-  updateSerial();
-  SIM7600.println("AT+CREG?"); // Signal quality test, value range is 0-31 , 31 is the best
-  updateSerial();
-  // process_string(a);
+  SIM7600.println("AT");
+  delay(500);
+  SIM7600.println("ATE0");
+  delay(500);
+  SIM7600.println("AT+CREG?");
+  delay(500);
+}
+
+bool sendATCommand(const char* cmd, const char* expectedResponse, unsigned long timeout) {
+  while(SIM7600.available()) { SIM7600.read(); }
+  SIM7600.println(cmd);
+  unsigned long t = millis();
+  String response = "";
+  while(millis() - t < timeout) {
+    if(SIM7600.available()){
+      char c = SIM7600.read();
+      response += c;
+      Serial.print(c);
+      if(response.indexOf(expectedResponse) != -1) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+String sendATCommandReturn(const char* cmd, unsigned long timeout) {
+  while(SIM7600.available()) { SIM7600.read(); }
+  SIM7600.println(cmd);
+  unsigned long t = millis();
+  String response = "";
+  while(millis() - t < timeout) {
+    if(SIM7600.available()){
+      char c = SIM7600.read();
+      response += c;
+      Serial.print(c);
+    }
+  }
+  return response;
+}
+
+void gsm_module_init()
+{
+  Serial.println("Initializing SIM7600 for Robust SMS Reception...");
+  
+  // Give module 5 seconds to power on
+  delay(5000);
+
+  // Send basic AT until OK (Module is alive)
+  Serial.println("Checking connection...");
+  while(!sendATCommand("AT", "OK", 1000)) {
+     Serial.println("Waiting for AT response...");
+     delay(1000);
+  }
+
+  // Wait for SIM card to be ready
+  Serial.println("Checking SIM card status...");
+  while(!sendATCommand("AT+CPIN?", "READY", 1000)) {
+     Serial.println("Waiting for SIM to be READY...");
+     delay(2000);
+  }
+
+  // Wait for Network Registration (0,1 or 0,5)
+  Serial.println("Waiting for Network Registration...");
+  bool registered = false;
+  for(int i=0; i<30; i++) { // Wait up to 60 seconds
+     String resp = sendATCommandReturn("AT+CREG?", 1000);
+     if(resp.indexOf("0,1") != -1 || resp.indexOf("0,5") != -1 || resp.indexOf("1,1") != -1 || resp.indexOf("1,5") != -1) {
+        registered = true;
+        break;
+     }
+     Serial.println("Module searching for network...");
+     delay(2000);
+  }
+
+  if(registered) {
+    Serial.println("Network Registered successfully!");
+  } else {
+    Serial.println("Warning: Network might not be registered yet. Proceeding anyway.");
+  }
+  
+  delay(2000);
+  
+  sendATCommand("AT+CPMS=\"ME\",\"ME\",\"ME\"", "OK", 2000);
+  sendATCommand("AT+CSCS=\"GSM\"", "OK", 1000);
+  sendATCommand("AT+CMGF=1", "OK", 1000);
+  sendATCommand("AT+CSMP=17,167,0,0", "OK", 1000);
+  sendATCommand("AT+CMGDA=\"DEL ALL\"", "OK", 3000);
+  sendATCommand("AT+CNMI=2,1", "OK", 1000);
+  
+  add_all_api(); // Initialize the command mapping array!
+  
+  Serial.println("SIM7600 Ready. Waiting for messages...");
 }
 void updateSerial()
 {
