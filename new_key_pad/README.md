@@ -1760,16 +1760,16 @@ Step 2: Send &UNLOCK,02,1234# (within 60 seconds)
 
 ---
 
-#### 6.3 ADD_USER Command
+#### 6.3 ADDUSER Command
 
 **Command Format:**
 ```
-&ADD_USER,<user_id>,<mobile_number>,<password>#
+&ADDUSER,<user_id>,<mobile_number>,<password>#
 ```
 
 **Example:**
 ```
-&ADD_USER,02,9876543210,1234#
+&ADDUSER,02,9876543210,1234#
 ```
 
 **Parameters:**
@@ -1792,16 +1792,16 @@ Step 2: Send &UNLOCK,02,1234# (within 60 seconds)
 
 ---
 
-#### 6.4 REMOVE_USER Command
+#### 6.4 REMOVEUSER Command
 
 **Command Format:**
 ```
-&REMOVE_USER,<user_id>#
+&REMOVEUSER,<user_id>#
 ```
 
 **Example:**
 ```
-&REMOVE_USER,02#
+&REMOVEUSER,02#
 ```
 
 **Parameters:**
@@ -1821,16 +1821,16 @@ Step 2: Send &UNLOCK,02,1234# (within 60 seconds)
 
 ---
 
-#### 6.5 CHANGE_PASSWORD Command
+#### 6.5 CHANGEPW Command
 
 **Command Format:**
 ```
-&CHANGE_PASSWORD,<user_id>,<old_password>,<new_password>#
+&CHANGEPW,<user_id>,<old_password>,<new_password>#
 ```
 
 **Example:**
 ```
-&CHANGE_PASSWORD,02,1234,5678#
+&CHANGEPW,02,1234,5678#
 ```
 
 **Parameters:**
@@ -1851,16 +1851,16 @@ Step 2: Send &UNLOCK,02,1234# (within 60 seconds)
 
 ---
 
-#### 6.6 UPDATE_TIME_SLOT Command
+#### 6.6 TIMESLOT Command
 
 **Command Format:**
 ```
-&UPDATE_TIME_SLOT,<user_id>,<in_hour>,<in_minute>,<out_hour>,<out_minute>#
+&TIMESLOT,<user_id>,<in_hour>,<in_minute>,<out_hour>,<out_minute>#
 ```
 
 **Example:**
 ```
-&UPDATE_TIME_SLOT,02,09,00,17,30#
+&TIMESLOT,02,09,00,17,30#
 ```
 
 **Parameters:**
@@ -1882,6 +1882,36 @@ Step 2: Send &UNLOCK,02,1234# (within 60 seconds)
 - Sends confirmation SMS
 
 **Note:** User can only access door during configured time window (unless no time slot configured)
+
+---
+
+#### 6.7 FACTRESET Command
+
+**Command Format:**
+```
+&FACTRESET,<master_password>#
+```
+
+**Example:**
+```
+&FACTRESET,MyMasterPass123#
+```
+
+**Response:**
+- ✅ **Success:** Fast flashes and reboots memory state
+- ❌ **Failure:** Returns standard error if password fails
+
+---
+
+#### 6.8 OTP & LOSTPW Commands
+
+**OTP Verification:**
+- Format: `&OTP,<6_digit_code>#`
+- Purpose: Disarms live alarm systems.
+
+**Password Recovery (LOSTPW):**
+- Standard Format: `&LOSTPW#` (Replies to sender with their own password)
+- Master Override Format: `&LOSTPW,<user_id>#` (Master extracts another user's password)
 
 ---
 
@@ -2125,10 +2155,13 @@ DOOR CLOSED
 | UNLOCK (Step 1) | `&UNLOCK,01,<master_pw>#` | Verify master |
 | UNLOCK (Step 2) | `&UNLOCK,<user_id>,<user_pw>#` | Verify user & unlock |
 | LOCK | `&LOCK,<user_id>,<password>#` | Lock door |
-| ADD_USER | `&ADD_USER,<id>,<mobile>,<pw>#` | Add new user |
-| REMOVE_USER | `&REMOVE_USER,<id>#` | Remove user |
-| CHANGE_PASSWORD | `&CHANGE_PASSWORD,<id>,<old>,<new>#` | Change password |
-| UPDATE_TIME_SLOT | `&UPDATE_TIME_SLOT,<id>,<in_h>,<in_m>,<out_h>,<out_m>#` | Set time slot |
+| OTP | `&OTP,<otp_code>#` | Verify one-time password to clear alarms |
+| ADDUSER | `&ADDUSER,<id>,<mobile>,<pw>#` | Add new user |
+| REMOVEUSER | `&REMOVEUSER,<id>#` | Remove user |
+| CHANGEPW | `&CHANGEPW,<id>,<old>,<new>#` | Change password |
+| TIMESLOT | `&TIMESLOT,<id>,<in_h>,<in_m>,<out_h>,<out_m>#` | Set time slot restrictions |
+| FACTRESET | `&FACTRESET,<master_pw>#` | Fully format EEPROM and clear users |
+| LOSTPW | `&LOSTPW#` or `&LOSTPW,<id>#` | Request password via SMS return |
 
 ---
 
@@ -2315,6 +2348,11 @@ battery_analog_input          // Battery voltage monitoring (analog)
 - EEPROM persistence
 
 ### Recent Changes
+- Overhauled GSM module initialization to massively increase SMS reliability
+- Switched SMS receipt architecture from volatile push (`+CMT:`) to buffered retrieval (`AT+CMGR=`) via `+CMTI` pings, completely fixing message truncation errors
+- Standardized remote SMS control API syntax (e.g. `ADDUSER`, `TIMESLOT`, `FACTRESET`)
+- Integrated separate SMS API Reference file (`SMS_API_Documentation.md`)
+- Fine-tuned EEPROM string parsers to securely ingest mobile numbers without over-allocating array buffers
 - Implemented dual authentication system (master + user)
 - Added fingerprint authentication support
 - Integrated GSM alert system
@@ -2323,7 +2361,7 @@ battery_analog_input          // Battery voltage monitoring (analog)
 - Added OTP system for alarm deactivation
 - Battery monitoring and display
 - Door control with sensor feedback
-- Time-based access control (configuration ready)
+- Time-based access control
 
 ---
 
