@@ -1257,6 +1257,8 @@ unsigned long door_error_start_time;
 
 bool b_vibration_alarm_triggered = 0;
 bool b_gun_point_activation_triggerd = 0;
+unsigned long last_alert_added_time = 0;
+#define ALERT_RETRY_INTERVAL_MS 30000 // 5 minutes retry interval
 
 bool b_error_in_door_open = 0;
 bool b_error_in_door_close = 0;
@@ -1269,7 +1271,7 @@ const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
-// #define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
 
 
 bool is_door_aligned_by_ir()
@@ -1959,15 +1961,15 @@ void gun_point_activation_fsm()
 {
   if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered)
   {
-    switch (gpa_state)
+    // Only re-populate queue if enough time has passed since last alert round
+    if (queue_index < 1 && (millis() - last_alert_added_time > ALERT_RETRY_INTERVAL_MS || last_alert_added_time == 0))
     {
-    case GPA_DO_NOTHING:
-      break;
-      
-    case GPA_SEND_MESSAGE:
-      // Only add messages if queue is empty (queue_index < 1 means queue is empty)
-      if (queue_index < 1)
+      switch (gpa_state)
       {
+      case GPA_DO_NOTHING:
+        break;
+        
+      case GPA_SEND_MESSAGE:
         for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
         {
           if (b_temperature_alarm_triggerd)
@@ -1993,15 +1995,11 @@ void gun_point_activation_fsm()
             }
           }
         }
+        last_alert_added_time = millis(); // Update timer after adding messages
         gpa_state = GPA_CALL;
         break;
-      }
-      break;
-      
-    case GPA_CALL:
-      // Only add calls if queue is empty (queue_index < 1 means queue is empty)
-      if (queue_index < 1)
-      {
+        
+      case GPA_CALL:
         for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
         {
           if (b_temperature_alarm_triggerd)
@@ -2021,9 +2019,10 @@ void gun_point_activation_fsm()
             }
           }
         }
+        last_alert_added_time = millis(); // Update timer after adding calls
         gpa_state = GPA_SEND_MESSAGE;
+        break;
       }
-      break;
     }
   }
 }
@@ -2083,6 +2082,8 @@ void check_if_door_access_is_allowed(uint8_t user_id)
   pass_length = 0;
   
   // Check if door is aligned first
+  /*
+  commented because while opening IR sensor alignmnet is not required while unlocking
   if (!is_door_aligned_by_ir())
   {
     lcd.clear();
@@ -2099,6 +2100,7 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     pass_length = 0;
     return 0;
   }
+  */
 
   // Check if today is a holiday - blocks all access
   if (is_holiday_blocking_access())
@@ -6287,26 +6289,19 @@ void copy_mobile_number_to_buffer(uint8_t mobile_number_index, char *buffer, uin
 void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_door_open)
 {
   char mbn[12];  // 10 digits + null terminator
-  char temp[12]; // 10 digits + null terminator
   
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(1000); // Delay of 1000 milli seconds or 1 second
-
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
+  
   DBG_L4(F("input index :: "));
   DBG_L4_PRINTLN(mobile_number_index);
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
-  copy_mobile_number_to_buffer(id - 1, temp, sizeof(temp));
   
-  DBG_L3(F("AT+CMGS=\"+91"));
-  DBG_L3(mbn);
-  DBG_L3_PRINTLN("\"\r");
-  
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
 
-  delay(1000);
   SIM7600.print("The BMS System Door Has Been ");
   DBG_L3(F("The BMS System Door Has Been "));
   if (_is_door_open)
@@ -6324,25 +6319,26 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
   SIM7600.print("\nAt ");
   print_date_time_to_gsm();
   SIM7600.println();
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(1000);
-  DBG_L2_PRINTLN(F("Message Sent!!"));
+  
+  if (sendATCommand("\x1A", "OK", 5000)) {
+    DBG_L2_PRINTLN(F("Message Sent!!"));
+  } else {
+    DBG_L1_PRINTLN(F("Message Failed!!"));
+  }
 }
 void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
   char mbn[12];  // 10 digits + null terminator
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(1000);                   // Delay of 1000 milli seconds or 1 second
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
   DBG_L3_PRINTLN(mbn);
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
 
-  delay(1000);
   SIM7600.print("The BMS System Door Has Sensed High Vibration.\n");
   SIM7600.print("OTP to Deactivate the sensor for your system is: ");
   SIM7600.print(generated_otp[0]);
@@ -6352,25 +6348,25 @@ void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.print(generated_otp[4]);
   SIM7600.println(generated_otp[5]);
 
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(1000);
-  DBG_L2_PRINTLN(F("Vib Alarm Message Sent!!"));
+  if (sendATCommand("\x1A", "OK", 5000)) {
+    DBG_L2_PRINTLN(F("Vib Alarm Message Sent!!"));
+  } else {
+    DBG_L1_PRINTLN(F("Vib Alarm Message Failed!!"));
+  }
 }
 void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
   char mbn[12];  // 10 digits + null terminator
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(1000);                   // Delay of 1000 milli seconds or 1 second
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
   DBG_L3_PRINTLN(mbn);
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
 
-  delay(1000);
   SIM7600.print("The BMS System Door Has Sensed High Temperature.\n");
   SIM7600.print("OTP to Deactivate the sensor for your system is: ");
   SIM7600.print(generated_otp[0]);
@@ -6380,25 +6376,25 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.print(generated_otp[4]);
   SIM7600.println(generated_otp[5]);
 
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(1000);
-  DBG_L2_PRINTLN(F("Temp Alarm Message Sent!!"));
+  if (sendATCommand("\x1A", "OK", 5000)) {
+    DBG_L2_PRINTLN(F("Temp Alarm Message Sent!!"));
+  } else {
+    DBG_L1_PRINTLN(F("Temp Alarm Message Failed!!"));
+  }
 }
 void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
 {
   char mbn[12];  // 10 digits + null terminator
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(1000);                   // Delay of 1000 milli seconds or 1 second
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
   DBG_L3_PRINTLN(mbn);
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
 
-  delay(1000);
   SIM7600.print("Duress Alert Is Activated in BMS System.\n");
   SIM7600.print("OTP to Deactivate the sensor for your system is: ");
   SIM7600.print(generated_otp[0]);
@@ -6407,63 +6403,69 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.print(generated_otp[3]);
   SIM7600.print(generated_otp[4]);
   SIM7600.println(generated_otp[5]);
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(1000);
-  DBG_L2_PRINTLN(F("Gun Point Message Sent!!"));
+  
+  if (sendATCommand("\x1A", "OK", 5000)) {
+    Serial.println(F("DEBUG: Gun Point Message Sent OK"));
+    DBG_L2_PRINTLN(F("Gun Point Message Sent!!"));
+  } else {
+    Serial.println(F("DEBUG: Gun Point Message FAILED"));
+    DBG_L1_PRINTLN(F("Gun Point Message Failed!!"));
+  }
 }
 void MakeCallWithNumber(uint8_t mobile_number_index)
 {
+  Serial.println(F("DEBUG: Entering MakeCallWithNumber"));
   char mbn[12];  // 10 digits + null terminator
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  DBG_L3_PRINTLN(mbn);
-  SIM7600.print("ATD+91");
-  SIM7600.print(mbn);
-  SIM7600.println(";"); // ATDxxxxxxxxxx; -- watch out here for semicolon at the end!!
+  Serial.print(F("DEBUG: Dialing Number: "));
+  Serial.println(mbn);
+
+  char cmd[32];
+  sprintf(cmd, "ATD+91%s;", mbn);
+  sendATCommand(cmd, "OK", 2000);
   DEBUG_PRINTLN("Calling  ");            // print response over serial port
-  delay(1000);
 }
 void SendMessageAuthFail(uint8_t mobile_number_index)
 {
   char mbn[12];  // 10 digits + null terminator
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
   DBG_L3_PRINTLN(mbn);
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
 
-  delay(100);
   SIM7600.print("Authentication Failed!\n");
   SIM7600.print("The BMS System has detected unauthorized attempt.\n");
   print_date_time_to_gsm();
   SIM7600.println();
 
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(100);
-  DBG_L2_PRINTLN(F("Auth Fail Message Sent!!"));
+  if (sendATCommand("\x1A", "OK", 5000)) {
+    DBG_L2_PRINTLN(F("Auth Fail Message Sent!!"));
+  } else {
+    DBG_L1_PRINTLN(F("Auth Fail Message Failed!!"));
+  }
 }
 
 void SendMessageDoorTimeout(uint8_t mobile_number_index)
 {
   char mbn[12];  // 10 digits + null terminator
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(100);                   // Delay of 1000 milli seconds or 1 second
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
   DBG_L3_PRINTLN(mbn);
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
+  delay(100); // Wait for module to be stable after prompt
 
-  delay(100);
   SIM7600.print("Door Timeout Alert!\n");
   SIM7600.print("The BMS System Door has been open for more than the permitted timeout.\n");
   SIM7600.print("Timeout Duration: ");
@@ -6473,10 +6475,11 @@ void SendMessageDoorTimeout(uint8_t mobile_number_index)
   print_date_time_to_gsm();
   SIM7600.println();
 
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(100);
-  DBG_L2_PRINTLN(F("Door Timeout Alert Message Sent!!"));
+  if (sendATCommand("\x1A", "OK", 5000)) {
+    DBG_L2_PRINTLN(F("Door Timeout Alert Message Sent!!"));
+  } else {
+    DBG_L1_PRINTLN(F("Door Timeout Alert Message Failed!!"));
+  }
 }
 
 void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
@@ -6570,10 +6573,10 @@ void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
   {
     DBG_L3_PRINTLN(string_to_send);
     SIM7600.println(string_to_send);
-    delay(100);
-    SIM7600.println((char)26); // ASCII code of CTRL+Z
-    delay(1000);
-    ReceiveMessage();
+    
+    if (sendATCommand("\x1A", "OK", 5000)) {
+      ReceiveMessage();
+    }
   }
 }
 void SendPWMessageWithDesc(uint8_t mobile_number_index, uint8_t index)
@@ -6584,16 +6587,15 @@ void SendPWMessageWithDesc(uint8_t mobile_number_index, uint8_t index)
   }
 
   char mbn[12];  // 10 digits + null terminator
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
-  delay(1000);                  // Delay of 1000 milli seconds or 1 second
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
 
-  delay(1000);
   SIM7600.print("PW for user (");
   SIM7600.print((index + 1));
   SIM7600.print(") is ");
@@ -6602,40 +6604,34 @@ void SendPWMessageWithDesc(uint8_t mobile_number_index, uint8_t index)
     SIM7600.print(password_value[index][i]);
   }
   SIM7600.println();
-  DBG_L2_PRINTLN(F("Password Sent!"));
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(1000);
-  ReceiveMessage();
+  
+  if (sendATCommand("\x1A", "OK", 5000)) {
+    DBG_L2_PRINTLN(F("Password Sent!"));
+    ReceiveMessage();
+  } else {
+    DBG_L1_PRINTLN(F("Password Failed!"));
+  }
 }
 void SendMessage()
 {
-  SIM7600.println("AT+CMGF=1");                   // Sets the GSM Module in Text Mode
-  delay(1000);                                    // Delay of 1000 milli seconds or 1 second
-  SIM7600.println("AT+CMGS=\"+919428811350\"\r"); // Replace x with mobile number
-  delay(1000);
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
+  if (!sendATCommand("AT+CMGS=\"+919428811350\"", ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
   SIM7600.println("This is Batman!!"); // The SMS text you want to send
-  delay(100);
-  SIM7600.println((char)26); // ASCII code of CTRL+Z
-  delay(1000);
+  sendATCommand("\x1A", "OK", 5000);
 }
 
 void ReceiveMessage()
 {
-  SIM7600.println("AT+CMGF=1"); 
-  delay(500);
-  SIM7600.println("AT+CNMI=2,1"); // Restore robust memory trigger mode!
-  delay(500);
+  sendATCommand("AT+CMGF=1", "OK", 1000); 
+  sendATCommand("AT+CNMI=2,1", "OK", 1000); // Restore robust memory trigger mode!
 }
 
 void gsm_init()
 {
-  SIM7600.println("AT");
-  delay(500);
-  SIM7600.println("ATE0");
-  delay(500);
-  SIM7600.println("AT+CREG?");
-  delay(500);
+  sendATCommand("AT", "OK", 1000);
+  sendATCommand("ATE0", "OK", 1000);
+  sendATCommand("AT+CREG?", "OK", 1000);
 }
 
 bool sendATCommand(const char* cmd, const char* expectedResponse, unsigned long timeout) {
@@ -6744,26 +6740,19 @@ void updateSerial()
 }
 void MakeCall()
 {
-  SIM7600.println("ATD+919428811350;"); // ATDxxxxxxxxxx; -- watch out here for semicolon at the end!!
+  sendATCommand("ATD+919428811350;", "OK", 2000);
   DEBUG_PRINTLN("Calling  ");           // print response over serial port
-  delay(1000);
 }
 
 void HangupCall()
 {
-  SIM7600.println("ATH");
+  sendATCommand("ATH", "OK", 1000);
   DEBUG_PRINTLN("Hangup Call");
-  delay(1000);
 }
 
 void ReceiveCall()
 {
-  SIM7600.println("ATA");
-  delay(1000);
-  {
-    call = SIM7600.read();
-    DEBUG_PRINT(call);
-  }
+  sendATCommand("ATA", "OK", 1000);
 }
 
 void RedialCall()
@@ -6775,12 +6764,10 @@ void RedialCall()
 
 void ResetModule()
 {
-  SIM7600.println("AT&F");
+  sendATCommand("AT&F", "OK", 2000);
   DEBUG_PRINTLN("Resetting Module");
-  delay(1000);
-  SIM7600.println("AT&F1");
+  sendATCommand("AT&F1", "OK", 2000);
   DEBUG_PRINTLN("Resetting Module");
-  delay(1000);
 }
 /*************** GSM CODE [END] ****************/
 /******** BUZZER [START] *********/
