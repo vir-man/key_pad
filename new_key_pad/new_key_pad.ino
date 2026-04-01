@@ -6720,6 +6720,13 @@ void gsm_module_init()
     Serial.println(F("Warning: GSM Module not responding to AT."));
   }
   else {
+    // Force radio toggle to re-init SIM interface on soft reboots
+    Serial.println(F("Resetting radio to force SIM detection..."));
+    sendATCommand("AT+CFUN=0", "OK", 2000);
+    delay(1000);
+    sendATCommand("AT+CFUN=1", "OK", 2000);
+    delay(4000); // Wait for SIM to power up after radio reset
+
     // Wait for SIM card to be ready - MAX 5 retries
     Serial.println(F("Checking SIM card status..."));
     uint8_t sim_retries = 0;
