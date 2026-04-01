@@ -600,50 +600,50 @@ void clear_eeprom_data()
 }
 void print_eeprom_data(HardwareSerial *serial1)
 {
-  serial1->print("\n|CONFIGURED?|MOBILE NUMBER|PW LENGTH|PASSWORD|IS_INOUT_CONFIG|IN_TIME|OUT_TIME\n");
+  serial1->print(F("\n|CONFIGURED?|MOBILE NUMBER|PW LENGTH|PASSWORD|IS_INOUT_CONFIG|IN_TIME|OUT_TIME\n"));
   for (uint8_t j = 0; j < MAX_USER_TO_BE_STORED; j++)
   {
     if (!is_password_configured[j])
     {
-      serial1->print("|NO|NA|NA|NA|NA|NA|NA\n");
+      serial1->print(F("|NO|NA|NA|NA|NA|NA|NA\n"));
     }
     else
     {
-      serial1->print("|YES|");
+      serial1->print(F("|YES|"));
       for (uint8_t i = 0; i < 10; i++)
       {
         serial1->print(mobile_number[j][i]);
       }
-      serial1->print("|");
+      serial1->print(F("|"));
       serial1->print(password_length[j]);
-      serial1->print("|");
+      serial1->print(F("|"));
       for (uint8_t i = 0; i < password_length[j]; i++)
       {
         serial1->print(password_value[j][i]);
       }
       if (!is_in_out_time_configured[j])
       {
-        serial1->print("|NO|NA|NA|\n");
+        serial1->print(F("|NO|NA|NA|\n"));
       }
       else
       {
-        serial1->print("|YES|");
+        serial1->print(F("|YES|"));
         serial1->print(in_time_hour[j]);
         serial1->print(":");
         serial1->print(in_time_minute[j]);
-        serial1->print("|");
+        serial1->print(F("|"));
         serial1->print(out_time_hour[j]);
         serial1->print(":");
         serial1->print(out_time_minute[j]);
-        serial1->print("|\n");
+        serial1->print(F("|\n"));
       }
     }
   }
-  serial1->print("Alpha Speed :");
+  serial1->print(F("Alpha Speed :"));
   serial1->print(alpha_speed);
-  serial1->print(" | Door Open Count :");
+  serial1->print(F(" | Door Open Count :"));
   serial1->print(door_open_count);
-  serial1->print(" | Buzzer Timeout :");
+  serial1->print(F(" | Buzzer Timeout :"));
   serial1->println(buzzer_timeout);
 }
 
@@ -2513,7 +2513,7 @@ void fingerprint_manager_fsm(){
             is_displayed = 1;
             lcd.clear();
             lcd.setCursor(0, 0);
-            lcd.print("USER PASS/BIO :");
+            LCD_PRINT("USER PASS/BIO :");
             first_user_verified = 1;
             user_bio_auth_fail_count = 0; // Reset when entering USER PASS/BIO screen
             delay(2000);
@@ -2528,9 +2528,9 @@ void fingerprint_manager_fsm(){
       is_displayed = 1;
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("MASTER FINGERPRNT");
+      LCD_PRINT("MASTER FINGERPRNT");
       lcd.setCursor(0, 1);
-      lcd.print("NOT MATCHED!");
+      LCD_PRINT("NOT MATCHED!");
       user_id = 0; // Invalid user ID
       
       // Send alert for invalid master fingerprint attempt - queue for users 1 to 5 (indices 0 to 4) if configured
@@ -2554,9 +2554,9 @@ void fingerprint_manager_fsm(){
           is_displayed = 1;
           lcd.clear();
           lcd.setCursor(0, 0);
-          lcd.print("USER FINGERPRNT");
+          LCD_PRINT("USER FINGERPRNT");
           lcd.setCursor(0, 1);
-          lcd.print("MATCHED!!");
+          LCD_PRINT("MATCHED!!");
           delay(2000);
           is_displayed = 0;
           fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_DOOR_UNLOCKED;
@@ -2575,9 +2575,9 @@ void fingerprint_manager_fsm(){
       is_displayed = 1;
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("USER FINGERPRNT");
+      LCD_PRINT("USER FINGERPRNT");
       lcd.setCursor(0, 1);
-      lcd.print("NOT MATCHED!");
+      LCD_PRINT("NOT MATCHED!");
       user_id = 0; // Invalid user ID
       
       // Track fingerprint failures and send alert
@@ -2607,7 +2607,7 @@ void fingerprint_manager_fsm(){
         fingerprint_manager_fsm_state = FINGERPRINT_FSM_STATE_ENTER_USER;
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print("USER PASS/BIO :");
+        LCD_PRINT("USER PASS/BIO :");
         is_displayed = 1;
       }
       break;
@@ -2657,16 +2657,16 @@ void password_input_fsm()
     switch (display_screen)
     {
     case MAIN:
-      lcd.print("PASSWORD:");
+      LCD_PRINT("PASSWORD:");
       break;
     case MASTER_PASSWORD:
-      lcd.print("MASTER PW:");
+      LCD_PRINT("MASTER PW:");
       break;
     case USER_PASSWORD:
       lcd.setCursor(0, 0);
       LCD_PRINT("USER-");
       if (user_id < 10) {
-        lcd.print("0");
+        LCD_PRINT("0");
       }
       lcd.print(user_id);
       LCD_PRINT(" PW ");
@@ -2677,11 +2677,11 @@ void password_input_fsm()
     lcd.setCursor(11, 0);
     if (is_num)
     {
-      lcd.print("NUM");
+      LCD_PRINT("NUM");
     }
     else
     {
-      lcd.print("ALPHA");
+      LCD_PRINT("ALPHA");
     }
     for (uint8_t i = 0; i < pass_length; i++)
     {
@@ -2750,9 +2750,9 @@ void password_input_fsm()
             is_displayed = 1;
             lcd.clear();
             lcd.setCursor(0, 0);
-            lcd.print("MASTER PW:");
+            LCD_PRINT("MASTER PW:");
             lcd.setCursor(0, 1);
-            lcd.print("PW UPDATED!!");
+            LCD_PRINT("PW UPDATED!!");
             my_delay(1);
             pass_length = 0;
             memset(password, '\0', 15);
@@ -2764,7 +2764,7 @@ void password_input_fsm()
             save_password_to_eeprom(user_id - 1, &password[0], pass_length);
             is_displayed = 1;
             lcd.setCursor(0, 1);
-            lcd.print("PW UPDATED!!");
+            LCD_PRINT("PW UPDATED!!");
             my_delay(1);
             pass_length = 0;
             memset(password, '\0', 15);
@@ -2779,7 +2779,7 @@ void password_input_fsm()
         {
           lcd.clear();
           lcd.setCursor(0, 0);
-          lcd.print("Password Short!");
+          LCD_PRINT("Password Short!");
           is_displayed = 0;
           delay(1000);
         }
@@ -2809,7 +2809,7 @@ void date_time_input_fsm()
     is_displayed = 1;
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("HHMMSS  DD/MM/YY");
+    LCD_PRINT("HHMMSS  DD/MM/YY");
     lcd.setCursor(0, 1);
     date_time_cursor_index = 0;
     for (uint8_t i = 0; i < date_time_len; i++)
@@ -2823,7 +2823,7 @@ void date_time_input_fsm()
       else if (i == 8 || i == 10)
       {
         lcd.setCursor(date_time_cursor_index++, 1);
-        lcd.print("/");
+        LCD_PRINT("/");
 
         lcd.setCursor(date_time_cursor_index++, 1);
         lcd.print(date_time[i]);
@@ -2873,9 +2873,9 @@ void date_time_input_fsm()
           {
             lcd.clear();
             lcd.setCursor(0, 0);
-            lcd.print("  DATE & TIME  ");
+            LCD_PRINT("  DATE & TIME  ");
             lcd.setCursor(0, 1);
-            lcd.print("SET SUCCESSFULLY");
+            LCD_PRINT("SET SUCCESSFULLY");
             //@TODO: RTC time set function to be called
             my_delay(3);
             display_screen = MASTER_MAIN;
@@ -2886,9 +2886,9 @@ void date_time_input_fsm()
             memset(date_time, '\0', 13);
             lcd.clear();
             lcd.setCursor(0, 0);
-            lcd.print("  DATE & TIME  ");
+            LCD_PRINT("  DATE & TIME  ");
             lcd.setCursor(0, 1);
-            lcd.print("INVALID DATE TIME!!");
+            LCD_PRINT("INVALID DATE TIME!!");
             //@TODO: RTC time set function to be called
             my_delay(3);
             is_displayed = 0;
@@ -2898,7 +2898,7 @@ void date_time_input_fsm()
         {
           lcd.clear();
           lcd.setCursor(0, 0);
-          lcd.print("ADD ALL DETAILS!");
+          LCD_PRINT("ADD ALL DETAILS!");
           is_displayed = 0;
           delay(1000);
         }
@@ -2954,11 +2954,11 @@ void mobile_number_input_fsm(uint8_t id)
     lcd.setCursor(0, 0);
     if (input_mobile_number_count == 0)
     {
-      lcd.print("MOBILE NUMBER :");
+      LCD_PRINT("MOBILE NUMBER :");
     }
     else
     {
-      lcd.print("RECONFIRM :");
+      LCD_PRINT("RECONFIRM :");
     }
     lcd.setCursor(11, 0);
     for (uint8_t i = 0; i < input_mobile_number_length; i++)
@@ -3020,9 +3020,9 @@ void mobile_number_input_fsm(uint8_t id)
             {
               lcd.clear();
               lcd.setCursor(0, 0);
-              lcd.print("MOBILE NUMBER :");
+              LCD_PRINT("MOBILE NUMBER :");
               lcd.setCursor(0, 1);
-              lcd.print("NO NOT MATCHED!");
+              LCD_PRINT("NO NOT MATCHED!");
               input_mobile_number_count = 0;
               input_mobile_number_length = 0;
               is_displayed = 0;
@@ -3035,9 +3035,9 @@ void mobile_number_input_fsm(uint8_t id)
               {
                 lcd.clear();
                 lcd.setCursor(0, 0);
-                lcd.print("MOBILE NUMBER :");
+                LCD_PRINT("MOBILE NUMBER :");
                 lcd.setCursor(0, 1);
-                lcd.print("UPDATED!!");
+                LCD_PRINT("UPDATED!!");
                 is_displayed = 0;
                 input_mobile_number_count = 0;
                 input_mobile_number_length = 0;
@@ -3053,19 +3053,19 @@ void mobile_number_input_fsm(uint8_t id)
               else
               {
                 lcd.setCursor(0, 0);
-                lcd.print("PLEASE WAIT...!!");
+                LCD_PRINT("PLEASE WAIT...!!");
                 lcd.setCursor(0, 1);
-                lcd.print("CREATING USER-");
+                LCD_PRINT("CREATING USER-");
                 lcd.print(id);
                 update_eeprom_data_at_index((id - 1), input_mobile_number, _password, 4);
                 my_delay(1);
                 lcd.clear();
                 lcd.setCursor(0, 0);
-                lcd.print("DEFAULT PASSWORD");
+                LCD_PRINT("DEFAULT PASSWORD");
                 lcd.setCursor(0, 1);
-                lcd.print("USER-");
+                LCD_PRINT("USER-");
                 lcd.print(id);
-                lcd.print(": ");
+                LCD_PRINT(": ");
                 for (uint8_t i = 0; i < 4; i++)
                   lcd.print(_password[i]);
                 my_delay(1);
@@ -3085,7 +3085,7 @@ void mobile_number_input_fsm(uint8_t id)
         {
           lcd.clear();
           lcd.setCursor(0, 1);
-          lcd.print("Short!");
+          LCD_PRINT("Short!");
           is_displayed = 0;
           delay(1000);
         }
@@ -3131,7 +3131,7 @@ void backup_screen_fsm()
           toogle_bit = 0;
           lcd.clear();
           lcd.setCursor(0, 0);
-          lcd.print("  BACKUP ");
+          LCD_PRINT("  BACKUP ");
           lcd.setCursor(0, 1);
           DBG_L3(F("IN PROGRESS .. "));
         }
@@ -3140,7 +3140,7 @@ void backup_screen_fsm()
           toogle_bit = 1;
           lcd.clear();
           lcd.setCursor(0, 0);
-          lcd.print("  BACKUP ");
+          LCD_PRINT("  BACKUP ");
           lcd.setCursor(0, 1);
           DBG_L3(F("IN PROGRESS .. .."));
         }
@@ -3151,9 +3151,9 @@ void backup_screen_fsm()
       is_displayed = 1;
       lcd.clear();
       lcd.setCursor(0, 0);
-      lcd.print("  WANT TO TAKE");
+      LCD_PRINT("  WANT TO TAKE");
       lcd.setCursor(0, 1);
-      lcd.print("  BACKUP..??");
+      LCD_PRINT("  BACKUP..??");
       b_backup_in_progress = 0;
       b_backup_complete = 0;
     }
@@ -3174,9 +3174,9 @@ void backup_screen_fsm()
         if (b_sd_card_not_initiated)
         {
           lcd.setCursor(0, 0);
-          lcd.print("  NO SD CARD ");
+          LCD_PRINT("  NO SD CARD ");
           lcd.setCursor(0, 1);
-          lcd.print("  ATTACHED!!");
+          LCD_PRINT("  ATTACHED!!");
 
           my_delay(1);
           is_displayed = 0;
@@ -3186,9 +3186,9 @@ void backup_screen_fsm()
         if (!b_flash_drive_attached)
         {
           lcd.setCursor(0, 0);
-          lcd.print(" NO FLASH DRIVE");
+          LCD_PRINT(" NO FLASH DRIVE");
           lcd.setCursor(0, 1);
-          lcd.print("  ATTACHED!!");
+          LCD_PRINT("  ATTACHED!!");
 
           my_delay(1);
           is_displayed = 0;
@@ -3197,7 +3197,7 @@ void backup_screen_fsm()
         }
         // if (b_flash_drive_attached && !b_sd_card_not_initiated)
         lcd.setCursor(0, 0);
-        lcd.print("  BACKUP ");
+        LCD_PRINT("  BACKUP ");
         lcd.setCursor(0, 1);
         DBG_L3(F("IN PROGRESS .. .."));
         is_displayed = 0;
@@ -3221,9 +3221,9 @@ void buzzer_input_fsm()
     is_displayed = 1;
     lcd.clear();
     lcd.setCursor(0, 0);
-    lcd.print("  DOOR TIMEOUT");
+    LCD_PRINT("  DOOR TIMEOUT");
     lcd.setCursor(0, 1);
-    lcd.print("MINUTE: ");
+    LCD_PRINT("MINUTE: ");
     if (b_buzzer_timeout_updated)
     {
       buzzer_counter++;
@@ -3256,7 +3256,7 @@ void buzzer_input_fsm()
       case ENTER:
         lcd.clear();
         lcd.setCursor(0, 0);
-        lcd.print(" BUZZER TIMEOUT ");
+        LCD_PRINT(" BUZZER TIMEOUT ");
         lcd.setCursor(0, 1);
         if (input_buzzer_timeout == 0)
         {
@@ -3264,7 +3264,7 @@ void buzzer_input_fsm()
         }
         write_buzzer_timeout_to_eeprom(input_buzzer_timeout);
         //@TODO : Needs to udpate alpha speed to EEPROM
-        lcd.print("    UPDATED.  ");
+        LCD_PRINT("    UPDATED.  ");
         my_delay(3);
         is_displayed = 0;
         buzzer_timeout = input_buzzer_timeout;
@@ -3319,16 +3319,16 @@ void holiday_menu_fsm()
     {
     case HOLIDAY_MENU_MAIN:
       lcd.setCursor(0, 0);
-      lcd.print("  HOLIDAY MENU  ");
+      LCD_PRINT("  HOLIDAY MENU  ");
       lcd.setCursor(0, 1);
-      lcd.print("1:ADD 2:REM 3:VIEW");
+      LCD_PRINT("1:ADD 2:REM 3:VIEW");
       break;
       
     case HOLIDAY_MENU_ADD:
       lcd.setCursor(0, 0);
-      lcd.print("  ADD HOLIDAY   ");
+      LCD_PRINT("  ADD HOLIDAY   ");
       lcd.setCursor(0, 1);
-      lcd.print("DATE: ");
+      LCD_PRINT("DATE: ");
       if (holiday_input_date > 0)
       {
         lcd.print(holiday_input_date);
@@ -3339,14 +3339,14 @@ void holiday_menu_fsm()
       lcd.setCursor(0, 0);
       if (holiday_is_remove_mode)
       {
-        lcd.print(" REMOVE HOLIDAY ");
+        LCD_PRINT(" REMOVE HOLIDAY ");
       }
       else
       {
-        lcd.print("  ADD HOLIDAY   ");
+        LCD_PRINT("  ADD HOLIDAY   ");
       }
       lcd.setCursor(0, 1);
-      lcd.print("MONTH: ");
+      LCD_PRINT("MONTH: ");
       if (holiday_input_month > 0)
       {
         lcd.print(holiday_input_month);
@@ -3357,14 +3357,14 @@ void holiday_menu_fsm()
       lcd.setCursor(0, 0);
       if (holiday_is_remove_mode)
       {
-        lcd.print(" REMOVE HOLIDAY ");
+        LCD_PRINT(" REMOVE HOLIDAY ");
       }
       else
       {
-        lcd.print("  ADD HOLIDAY   ");
+        LCD_PRINT("  ADD HOLIDAY   ");
       }
       lcd.setCursor(0, 1);
-      lcd.print("YEAR: ");
+      LCD_PRINT("YEAR: ");
       if (holiday_input_year > 0)
       {
         lcd.print(holiday_input_year);
@@ -3373,9 +3373,9 @@ void holiday_menu_fsm()
       
     case HOLIDAY_MENU_REMOVE:
       lcd.setCursor(0, 0);
-      lcd.print(" REMOVE HOLIDAY ");
+      LCD_PRINT(" REMOVE HOLIDAY ");
       lcd.setCursor(0, 1);
-      lcd.print("DATE: ");
+      LCD_PRINT("DATE: ");
       if (holiday_input_date > 0)
       {
         lcd.print(holiday_input_date);
@@ -3386,9 +3386,9 @@ void holiday_menu_fsm()
       if (holiday_count == 0)
       {
         lcd.setCursor(0, 0);
-        lcd.print("  NO HOLIDAYS   ");
+        LCD_PRINT("  NO HOLIDAYS   ");
         lcd.setCursor(0, 1);
-        lcd.print("   CONFIGURED   ");
+        LCD_PRINT("   CONFIGURED   ");
       }
       else
       {
@@ -3399,9 +3399,9 @@ void holiday_menu_fsm()
         }
         
         lcd.setCursor(0, 0);
-        lcd.print("HOLIDAY ");
+        LCD_PRINT("HOLIDAY ");
         lcd.print(holiday_view_index + 1);
-        lcd.print("/");
+        LCD_PRINT("/");
         lcd.print(holiday_count);
         lcd.setCursor(0, 1);
         // Read holiday from EEPROM directly
@@ -3409,13 +3409,13 @@ void holiday_menu_fsm()
         uint8_t h_date = EEPROM.read(addr);
         uint8_t h_month = EEPROM.read(addr + 1);
         uint8_t h_year = EEPROM.read(addr + 2);
-        if (h_date < 10) lcd.print("0");
+        if (h_date < 10) LCD_PRINT("0");
         lcd.print(h_date);
-        lcd.print("/");
-        if (h_month < 10) lcd.print("0");
+        LCD_PRINT("/");
+        if (h_month < 10) LCD_PRINT("0");
         lcd.print(h_month);
-        lcd.print("/");
-        if (h_year < 10) lcd.print("0");
+        LCD_PRINT("/");
+        if (h_year < 10) LCD_PRINT("0");
         lcd.print(h_year);
       }
       break;
@@ -3558,18 +3558,18 @@ void holiday_menu_fsm()
             {
               lcd.clear();
               lcd.setCursor(0, 0);
-              lcd.print(" HOLIDAY REMOVED");
+              LCD_PRINT(" HOLIDAY REMOVED");
               lcd.setCursor(0, 1);
-              lcd.print("   SUCCESSFULLY ");
+              LCD_PRINT("   SUCCESSFULLY ");
               my_delay(2);
             }
             else
             {
               lcd.clear();
               lcd.setCursor(0, 0);
-              lcd.print("  HOLIDAY NOT   ");
+              LCD_PRINT("  HOLIDAY NOT   ");
               lcd.setCursor(0, 1);
-              lcd.print("     FOUND      ");
+              LCD_PRINT("     FOUND      ");
               my_delay(2);
             }
           }
@@ -3580,18 +3580,18 @@ void holiday_menu_fsm()
             {
               lcd.clear();
               lcd.setCursor(0, 0);
-              lcd.print("  HOLIDAY ADDED ");
+              LCD_PRINT("  HOLIDAY ADDED ");
               lcd.setCursor(0, 1);
-              lcd.print("   SUCCESSFULLY ");
+              LCD_PRINT("   SUCCESSFULLY ");
               my_delay(2);
             }
             else
             {
               lcd.clear();
               lcd.setCursor(0, 0);
-              lcd.print("  FAILED TO ADD ");
+              LCD_PRINT("  FAILED TO ADD ");
               lcd.setCursor(0, 1);
-              lcd.print("  HOLIDAY/EXISTS ");
+              LCD_PRINT("  HOLIDAY/EXISTS ");
               my_delay(2);
             }
           }
@@ -3839,7 +3839,7 @@ void clear_screen_and_enroll_finger()
 {
   lcd.clear();
   lcd.setCursor(0, 0);
-  lcd.print("ENROLL FINGER :");
+  LCD_PRINT("ENROLL FINGER :");
   lcd.setCursor(0, 1);
 }
 int8_t getFingerprintEnroll(int id)
@@ -3855,13 +3855,13 @@ int8_t getFingerprintEnroll(int id)
     {
     case FINGERPRINT_OK:
       DBG_L3_PRINTLN(F("Image taken"));
-      lcd.print("IMAGE TAKEN");
+      LCD_PRINT("IMAGE TAKEN");
       break;
     case FINGERPRINT_NOFINGER:
       break;
     default:
       DBG_L1_PRINTLN(F("Unknown error"));
-      lcd.print("UNKNOWN ERROR!");
+      LCD_PRINT("UNKNOWN ERROR!");
       break;
     }
   }
@@ -3875,15 +3875,15 @@ int8_t getFingerprintEnroll(int id)
   {
   case FINGERPRINT_OK:
     DBG_L3_PRINTLN(F("Image converted"));
-    lcd.print("IMAGE CONVERTED");
+    LCD_PRINT("IMAGE CONVERTED");
     break;
   default:
     DBG_L1_PRINTLN(F("Unknown error"));
-    lcd.print("UNKNOWN ERROR!");
+    LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
   clear_screen_and_enroll_finger();
-  lcd.print("REMOVE FINGER!");
+  LCD_PRINT("REMOVE FINGER!");
   DBG_L3_PRINTLN(F("Remove finger"));
   delay(2000);
   p = 0;
@@ -3895,7 +3895,7 @@ int8_t getFingerprintEnroll(int id)
   DBG_L3_PRINTLN(id);
   p = -1;
   clear_screen_and_enroll_finger();
-  lcd.print("CONFIRM FINGER!");
+  LCD_PRINT("CONFIRM FINGER!");
   DBG_L3_PRINTLN(F("Place same finger again"));
   while (p != FINGERPRINT_OK)
   {
@@ -3905,14 +3905,14 @@ int8_t getFingerprintEnroll(int id)
     case FINGERPRINT_OK:
       clear_screen_and_enroll_finger();
       DBG_L3_PRINTLN(F("Image taken"));
-      lcd.print("IMAGE TAKEN");
+      LCD_PRINT("IMAGE TAKEN");
       break;
     case FINGERPRINT_NOFINGER:
       break;
     default:
       clear_screen_and_enroll_finger();
       DBG_L1_PRINTLN(F("Unknown error"));
-      lcd.print("UNKNOWN ERROR!");
+      LCD_PRINT("UNKNOWN ERROR!");
       break;
     }
   }
@@ -3924,11 +3924,11 @@ int8_t getFingerprintEnroll(int id)
   {
   case FINGERPRINT_OK:
     DBG_L3_PRINTLN(F("Image converted"));
-    lcd.print("IMAGE CONVERTED!");
+    LCD_PRINT("IMAGE CONVERTED!");
     break;
   default:
     DBG_L1_PRINTLN(F("Unknown error"));
-    lcd.print("UNKNOWN ERROR!");
+    LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
 
@@ -3940,12 +3940,12 @@ int8_t getFingerprintEnroll(int id)
   if (p == FINGERPRINT_OK)
   {
     DBG_L2_PRINTLN(F("Prints matched!"));
-    lcd.print("PRINTS MATCHED!");
+    LCD_PRINT("PRINTS MATCHED!");
   }
   else
   {
     DBG_L1_PRINTLN(F("Unknown error"));
-    lcd.print("UNKNOWN ERROR!");
+    LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
 
@@ -3956,14 +3956,14 @@ int8_t getFingerprintEnroll(int id)
   if (p == FINGERPRINT_OK)
   {
     DBG_L2_PRINTLN(F("Stored!"));
-    lcd.print("STORED!");
+    LCD_PRINT("STORED!");
     delay(2000);
     return true;
   }
   else
   {
     DBG_L1_PRINTLN(F("Unknown error"));
-    lcd.print("UNKNOWN ERROR!");
+    LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
 
@@ -5055,7 +5055,7 @@ void gsm_module_task()
         int commaIndex = incStr.indexOf(',');
         if (commaIndex != -1) {
           int smsIndex = incStr.substring(commaIndex + 1).toInt();
-          Serial.println("Caught +CMTI Notification! Reading SMS from memory...");
+          Serial.println(F("Caught +CMTI Notification! Reading SMS from memory..."));
           
           String smsContent = sendATCommandReturn(("AT+CMGR=" + String(smsIndex)).c_str(), 3000);
           
@@ -5187,7 +5187,7 @@ bool find_mobile_number(const char* _input, uint16_t inputLen)
  */
 uint8_t api_unlock_door()
 {
-  DEBUG_PRINTLN("Unlock Door");
+  DEBUG_PRINTLN(F("Unlock Door"));
   print_all_received_para();
   
   // Verify mobile number is registered
@@ -5319,7 +5319,7 @@ uint8_t api_unlock_door()
  */
 uint8_t api_lock_door()
 {
-  DEBUG_PRINTLN("Lock Door");
+  DEBUG_PRINTLN(F("Lock Door"));
   print_all_received_para();
   
   // Verify mobile number is registered
@@ -5408,7 +5408,7 @@ uint8_t api_lock_door()
  */
 uint8_t api_add_user()
 {
-  DEBUG_PRINTLN("Add User");
+  DEBUG_PRINTLN(F("Add User"));
   print_all_received_para();
 
   // Only master user (index 0) can add users
@@ -5504,7 +5504,7 @@ uint8_t api_add_user()
  */
 void api_verify_otp()
 {
-  DEBUG_PRINTLN("Verify OTP");
+  DEBUG_PRINTLN(F("Verify OTP"));
   print_all_received_para();
 
   if (_user_id_from_mobile_number != 0)
@@ -5579,7 +5579,7 @@ void api_verify_otp()
  */
 uint8_t api_remove_user()
 {
-  DEBUG_PRINTLN("Remove User");
+  DEBUG_PRINTLN(F("Remove User"));
   print_all_received_para();
   
   // Only master user (index 0) can remove users
@@ -5687,7 +5687,7 @@ uint8_t api_factory_reset()
  */
 uint8_t api_change_password()
 {
-  DEBUG_PRINTLN("Change Password");
+  DEBUG_PRINTLN(F("Change Password"));
   print_all_received_para();
   
   // Verify mobile number is registered
@@ -6029,7 +6029,7 @@ bool process_request()
   uint8_t response = 0;
   if (cmd_index == -1)
   {
-    DEBUG_PRINTLN("CMD NOT FOUND!");
+    DEBUG_PRINTLN(F("CMD NOT FOUND!"));
     return 0;
   }
   else
@@ -6137,7 +6137,7 @@ bool parse_vars(const char* _input, uint16_t inputLen)
         }
         else
         {
-          DEBUG_PRINTLN("cmd not found in parse request");
+          DEBUG_PRINTLN(F("cmd not found in parse request"));
           return 0;
         }
       }
@@ -6244,7 +6244,7 @@ void process_string(const char *input, uint16_t inputLen)
 
 void print_date_time_to_gsm()
 {
-  SIM7600.print("Date: ");
+  SIM7600.print(F("Date: "));
   if (date < 10)
     SIM7600.print("0");
   SIM7600.print(date);
@@ -6254,7 +6254,7 @@ void print_date_time_to_gsm()
   SIM7600.print(month);
   SIM7600.print('/');
   SIM7600.print(year);
-  SIM7600.print("\nTime: ");
+  SIM7600.print(F("\nTime: "));
   if (minute < 10)
     SIM7600.print("0");
   SIM7600.print(hour);
@@ -6306,21 +6306,21 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
   if (!sendATCommand(cmd, ">", 2000)) return;
   delay(100); // Wait for module stability after prompt
 
-  SIM7600.print("The BMS System Door Has Been ");
+  SIM7600.print(F("The BMS System Door Has Been "));
   DBG_L3(F("The BMS System Door Has Been "));
   if (_is_door_open)
   {
-    SIM7600.print("Opened");
+    SIM7600.print(F("Opened"));
     DBG_L3(F("Opened"));
   }
   else
   {
-    SIM7600.print("Closed");
+    SIM7600.print(F("Closed"));
     DBG_L3_PRINTLN(F("Closed"));
   }
-  SIM7600.print(" By User-");
+  SIM7600.print(F(" By User-"));
   SIM7600.print(id);
-  SIM7600.print("\nAt ");
+  SIM7600.print(F("\nAt "));
   print_date_time_to_gsm();
   SIM7600.println();
   
@@ -6343,8 +6343,8 @@ void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
   if (!sendATCommand(cmd, ">", 2000)) return;
   delay(100); // Wait for module stability after prompt
 
-  SIM7600.print("The BMS System Door Has Sensed High Vibration.\n");
-  SIM7600.print("OTP to Deactivate the sensor for your system is: ");
+  SIM7600.print(F("The BMS System Door Has Sensed High Vibration.\n"));
+  SIM7600.print(F("OTP to Deactivate the sensor for your system is: "));
   SIM7600.print(generated_otp[0]);
   SIM7600.print(generated_otp[1]);
   SIM7600.print(generated_otp[2]);
@@ -6371,8 +6371,8 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
   if (!sendATCommand(cmd, ">", 2000)) return;
   delay(100); // Wait for module stability after prompt
 
-  SIM7600.print("The BMS System Door Has Sensed High Temperature.\n");
-  SIM7600.print("OTP to Deactivate the sensor for your system is: ");
+  SIM7600.print(F("The BMS System Door Has Sensed High Temperature.\n"));
+  SIM7600.print(F("OTP to Deactivate the sensor for your system is: "));
   SIM7600.print(generated_otp[0]);
   SIM7600.print(generated_otp[1]);
   SIM7600.print(generated_otp[2]);
@@ -6399,8 +6399,8 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   if (!sendATCommand(cmd, ">", 2000)) return;
   delay(100); // Wait for module stability after prompt
 
-  SIM7600.print("Duress Alert Is Activated in BMS System.\n");
-  SIM7600.print("OTP to Deactivate the sensor for your system is: ");
+  SIM7600.print(F("Duress Alert Is Activated in BMS System.\n"));
+  SIM7600.print(F("OTP to Deactivate the sensor for your system is: "));
   SIM7600.print(generated_otp[0]);
   SIM7600.print(generated_otp[1]);
   SIM7600.print(generated_otp[2]);
@@ -6496,7 +6496,7 @@ void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
   char mbn[12];  // 10 digits + null terminator
   const char *string_to_send = NULL;  // Use const char* instead of String
 
-  SIM7600.println("AT+CMGF=1"); // Sets the GSM Module in Text Mode
+  SIM7600.println(F("AT+CMGF=1")); // Sets the GSM Module in Text Mode
   delay(1000);                  // Delay of 1000 milli seconds or 1 second
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
@@ -6621,7 +6621,7 @@ void SendMessage()
   if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   if (!sendATCommand("AT+CMGS=\"+919428811350\"", ">", 2000)) return;
   delay(100); // Wait for module stability after prompt
-  SIM7600.println("This is Batman!!"); // The SMS text you want to send
+  SIM7600.println(F("This is Batman!!")); // The SMS text you want to send
   sendATCommand("\x1A", "OK", 5000);
 }
 
@@ -6682,56 +6682,70 @@ String sendATCommandReturn(const char* cmd, unsigned long timeout) {
  */
 void gsm_module_init()
 {
-  Serial.println("Initializing SIM7600 for Robust SMS Reception...");
+  Serial.println(F("Initializing SIM7600 for Robust SMS Reception..."));
   
   // Give module 5 seconds to power on
   delay(5000);
 
-  // Send basic AT until OK (Module is alive)
-  Serial.println("Checking connection...");
-  while(!sendATCommand("AT", "OK", 1000)) {
-     Serial.println("Waiting for AT response...");
+  // Send basic AT (Module is alive) - MAX 5 retries
+  Serial.println(F("Checking connection..."));
+  uint8_t at_retries = 0;
+  while(!sendATCommand("AT", "OK", 1000) && at_retries < 5) {
+     Serial.println(F("Waiting for AT response..."));
+     at_retries++;
      delay(1000);
   }
 
-  // Wait for SIM card to be ready
-  Serial.println("Checking SIM card status...");
-  while(!sendATCommand("AT+CPIN?", "READY", 1000)) {
-     Serial.println("Waiting for SIM to be READY...");
-     delay(2000);
+  if (at_retries >= 5) {
+    Serial.println(F("Warning: GSM Module not responding to AT."));
   }
+  else {
+    // Wait for SIM card to be ready - MAX 5 retries
+    Serial.println(F("Checking SIM card status..."));
+    uint8_t sim_retries = 0;
+    while(!sendATCommand("AT+CPIN?", "READY", 1000) && sim_retries < 5) {
+       Serial.println(F("Waiting for SIM to be READY..."));
+       sim_retries++;
+       delay(2000);
+    }
 
-  // Wait for Network Registration (0,1 or 0,5)
-  Serial.println("Waiting for Network Registration...");
-  bool registered = false;
-  for(int i=0; i<30; i++) { // Wait up to 60 seconds
-     String resp = sendATCommandReturn("AT+CREG?", 1000);
-     if(resp.indexOf("0,1") != -1 || resp.indexOf("0,5") != -1 || resp.indexOf("1,1") != -1 || resp.indexOf("1,5") != -1) {
-        registered = true;
-        break;
-     }
-     Serial.println("Module searching for network...");
-     delay(2000);
-  }
+    if (sim_retries >= 5) {
+      Serial.println(F("Warning: SIM Card not ready or missing."));
+    }
+    else {
+      // Wait for Network Registration (0,1 or 0,5)
+      Serial.println(F("Waiting for Network Registration..."));
+      bool registered = false;
+      for(int i=0; i<30; i++) { // Wait up to 60 seconds
+         String resp = sendATCommandReturn("AT+CREG?", 1000);
+         if(resp.indexOf("0,1") != -1 || resp.indexOf("0,5") != -1 || resp.indexOf("1,1") != -1 || resp.indexOf("1,5") != -1) {
+            registered = true;
+            break;
+         }
+         Serial.println(F("Module searching for network..."));
+         delay(2000);
+      }
 
-  if(registered) {
-    Serial.println("Network Registered successfully!");
-  } else {
-    Serial.println("Warning: Network might not be registered yet. Proceeding anyway.");
+      if(registered) {
+        Serial.println(F("Network Registered successfully!"));
+      } else {
+        Serial.println(F("Warning: Network might not be registered yet. Proceeding anyway."));
+      }
+      
+      delay(2000);
+      
+      sendATCommand("AT+CPMS=\"ME\",\"ME\",\"ME\"", "OK", 2000);
+      sendATCommand("AT+CSCS=\"GSM\"", "OK", 1000);
+      sendATCommand("AT+CMGF=1", "OK", 1000);
+      sendATCommand("AT+CSMP=17,167,0,0", "OK", 1000);
+      sendATCommand("AT+CMGDA=\"DEL ALL\"", "OK", 3000);
+      sendATCommand("AT+CNMI=2,1", "OK", 1000);
+    }
   }
-  
-  delay(2000);
-  
-  sendATCommand("AT+CPMS=\"ME\",\"ME\",\"ME\"", "OK", 2000);
-  sendATCommand("AT+CSCS=\"GSM\"", "OK", 1000);
-  sendATCommand("AT+CMGF=1", "OK", 1000);
-  sendATCommand("AT+CSMP=17,167,0,0", "OK", 1000);
-  sendATCommand("AT+CMGDA=\"DEL ALL\"", "OK", 3000);
-  sendATCommand("AT+CNMI=2,1", "OK", 1000);
   
   add_all_api(); // Initialize the command mapping array!
   
-  Serial.println("SIM7600 Ready. Waiting for messages...");
+  Serial.println(F("Initialization Complete. Proceeding to main loop..."));
 }
 void updateSerial()
 {
