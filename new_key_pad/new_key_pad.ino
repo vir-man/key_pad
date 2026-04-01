@@ -17,63 +17,77 @@ Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 
 #define ONE_WIRE_BUS 42
 
+typedef uint8_t (*functionPtr)();
+
 // #define DEBUG
 
 #ifdef DEBUG
-#define DEBUG_PRINT(x) Serial.print(x)
-#define DEBUG_PRINTLN(x) Serial.println(x)
+#define DEBUG_PRINT(s) Serial.print(F(s))
+#define DEBUG_PRINTLN(s) Serial.println(F(s))
+#define DEBUG_PRINT_VAR(x, ...) Serial.print(x, ##__VA_ARGS__)
+#define DEBUG_PRINTLN_VAR(x, ...) Serial.println(x, ##__VA_ARGS__)
 #else
-#define DEBUG_PRINT(x)
-#define DEBUG_PRINTLN(x)
+#define DEBUG_PRINT(s)
+#define DEBUG_PRINTLN(s)
+#define DEBUG_PRINT_VAR(x, ...)
+#define DEBUG_PRINTLN_VAR(x, ...)
 #endif
 
 // Debug Level System - Set DEBUG_LEVEL to control output (0 = no debug, 1-4 = increasing verbosity)
 #ifndef DEBUG_LEVEL
-#define DEBUG_LEVEL 4  // Default: no debug output
+#define DEBUG_LEVEL 4  // Default: all debug output
 #endif
 
-// Level 1 - Critical errors/system failures
+// Level 1 - Critical errors
 #if DEBUG_LEVEL >= 1
-#define DBG_L1(...) Serial.print(__VA_ARGS__)
-#define DBG_L1_PRINT(...) Serial.print(__VA_ARGS__)
-#define DBG_L1_PRINTLN(...) Serial.println(__VA_ARGS__)
+#define DBG_L1(s) Serial.print(F(s))
+#define DBG_L1_PRINTLN(s) Serial.println(F(s))
+#define DBG_L1V(x, ...) Serial.print(x, ##__VA_ARGS__)
+#define DBG_L1LN_V(x, ...) Serial.println(x, ##__VA_ARGS__)
 #else
-#define DBG_L1(...)
-#define DBG_L1_PRINT(...)
-#define DBG_L1_PRINTLN(...)
+#define DBG_L1(s)
+#define DBG_L1_PRINTLN(s)
+#define DBG_L1V(x, ...)
+#define DBG_L1LN_V(x, ...)
 #endif
 
-// Level 2 - Warnings/important events
+// Level 2 - Warnings
 #if DEBUG_LEVEL >= 2
-#define DBG_L2(...) Serial.print(__VA_ARGS__)
-#define DBG_L2_PRINT(...) Serial.print(__VA_ARGS__)
-#define DBG_L2_PRINTLN(...) Serial.println(__VA_ARGS__)
+#define DBG_L2(s) Serial.print(F(s))
+#define DBG_L2_PRINTLN(s) Serial.println(F(s))
+#define DBG_L2V(x, ...) Serial.print(x, ##__VA_ARGS__)
+#define DBG_L2LN_V(x, ...) Serial.println(x, ##__VA_ARGS__)
 #else
-#define DBG_L2(...)
-#define DBG_L2_PRINT(...)
-#define DBG_L2_PRINTLN(...)
+#define DBG_L2(s)
+#define DBG_L2_PRINTLN(s)
+#define DBG_L2V(x, ...)
+#define DBG_L2LN_V(x, ...)
 #endif
 
-// Level 3 - Informational/debugging
+// Level 3 - Info
 #if DEBUG_LEVEL >= 3
-#define DBG_L3(...) Serial.print(__VA_ARGS__)
-#define DBG_L3_PRINT(...) Serial.print(__VA_ARGS__)
-#define DBG_L3_PRINTLN(...) Serial.println(__VA_ARGS__)
+#define DBG_L3(s) Serial.print(F(s))
+#define DBG_L3_PRINTLN(s) Serial.println(F(s))
+#define DBG_L3V(x, ...) Serial.print(x, ##__VA_ARGS__)
+#define DBG_L3LN_V(x, ...) Serial.println(x, ##__VA_ARGS__)
 #else
-#define DBG_L3(...)
-#define DBG_L3_PRINT(...)
-#define DBG_L3_PRINTLN(...)
+#define DBG_L3(s)
+#define DBG_L3_PRINTLN(s)
+#define DBG_L3V(x, ...)
+#define DBG_L3LN_V(x, ...)
 #endif
 
-// Level 4 - Verbose/trace
+// Level 4 - Trace
 #if DEBUG_LEVEL >= 4
-#define DBG_L4(...) Serial.print(__VA_ARGS__)
-#define DBG_L4_PRINT(...) Serial.print(__VA_ARGS__)
-#define DBG_L4_PRINTLN(...) Serial.println(__VA_ARGS__)
+#define DBG_L4(s) Serial.print(F(s))
+#define DBG_L4_PRINTLN(s) Serial.println(F(s))
+#define DBG_L4V(x, ...) Serial.print(x, ##__VA_ARGS__)
+#define DBG_L4LN_V(x, ...) Serial.println(x, ##__VA_ARGS__)
 #else
-#define DBG_L4(...)
-#define DBG_L4_PRINT(...)
-#define DBG_L4_PRINTLN(...)
+#define DBG_L4(s)
+#define DBG_L4_PRINTLN(s)
+#define DBG_L4V(x, ...)
+#define DBG_L4LN_V(x, ...)
 #endif
 
 #define SIM7600 sim7600Serial
@@ -158,7 +172,7 @@ const char* DayAsString_P(uint8_t day)
 inline void printDayName(uint8_t day) {
   static char buffer[12]; // Static = allocated once, not per call
   strcpy_P(buffer, DayAsString_P(day));
-  DBG_L3(buffer);
+  DBG_L3V(buffer);
 }
 
 // Inlined: Tiny function, avoid call overhead
@@ -226,20 +240,20 @@ void update_date_time_from_rtc()
   day_of_week = rtc.dayOfWeek();
 
   // Print time every update (1 minute interval)
-  DBG_L3(month);
-  DBG_L3(F("/"));
-  DBG_L3(date);
-  DBG_L3(F("/"));
-  DBG_L3(year);
-  DBG_L3(F("  Time: "));
-  DBG_L3(hour);
-  DBG_L3(F(":"));
-  DBG_L3(minute);
-  DBG_L3(F(":"));
-  DBG_L3(second);
-  DBG_L3(F(" "));
+  DBG_L3V(month);
+  DBG_L3("/");
+  DBG_L3V(date);
+  DBG_L3("/");
+  DBG_L3V(year);
+  DBG_L3("  Time: ");
+  DBG_L3V(hour);
+  DBG_L3(":");
+  DBG_L3V(minute);
+  DBG_L3(":");
+  DBG_L3V(second);
+  DBG_L3(" ");
   printDayName(day_of_week);
-  DBG_L3_PRINTLN();
+  Serial.println();
 }
 
 // Ultra-optimized: Minimal operations, inline timer update
@@ -381,13 +395,13 @@ void update_log_entry(uint16_t sr_no, uint8_t _user_id, bool dir)
     dataFile.println(dataString);
     dataFile.close();
     // print to the serial port too:
-    DBG_L3_PRINTLN(dataString);
-    DBG_L2_PRINTLN(F("BMS-LOG1.TXT Updated!"));
+    DBG_L3LN_V(dataString);
+    DBG_L2_PRINTLN("BMS-LOG1.TXT Updated!");
   }
   // if the file isn't open, pop up an error:
   else
   {
-    DBG_L1_PRINTLN(F("error opening BMS-LOG1.TXT"));
+    DBG_L1_PRINTLN("error opening BMS-LOG1.TXT");
   }
 }
 /***** SD CARD [END] *****/
@@ -416,12 +430,12 @@ void flash_drive_task()
   {
     if (flashDrive.getDeviceStatus())
     {
-      DBG_L2_PRINTLN(F("Flash drive attached!"));
+      DBG_L2_PRINTLN("Flash drive attached!");
       b_flash_drive_attached = 1;
     }
     else
     {
-      DBG_L2_PRINTLN(F("Flash drive detached!"));
+      DBG_L2_PRINTLN("Flash drive detached!");
       b_flash_drive_attached = 0;
     }
   }
@@ -432,7 +446,6 @@ void flash_drive_task()
 }
 void copy_data_from_sd_card_to_usb_flash_drive()
 {
-  bool b_flash_drive_file_available = 0;
   char input_string_char_array[80];  // Reduced from 100 to save 20 bytes RAM
 
   SERIAL_PRINT("File opened!");
@@ -444,11 +457,10 @@ void copy_data_from_sd_card_to_usb_flash_drive()
   flashDrive.writeFile(pgm_buffer, strlen(pgm_buffer));
   if (dataFile)
   {
-    uint8_t cursor_index = 0;
     while (dataFile.available())
     {
       String input_string_from_sd_card = dataFile.readStringUntil('\n');
-      DBG_L4_PRINTLN(input_string_from_sd_card);
+      DBG_L4LN_V(input_string_from_sd_card);
       memset(input_string_char_array, '\0', sizeof(input_string_char_array));
       input_string_from_sd_card.toCharArray(input_string_char_array, input_string_from_sd_card.length());
       input_string_char_array[strlen(input_string_char_array)] = '\n';
@@ -466,7 +478,7 @@ void copy_data_from_sd_card_to_usb_flash_drive()
     while (readMore)
     { // our temporary buffer where we read data from flash drive and the size of that buffer
       readMore = flashDrive.readFile(char_array, sizeof(char_array));
-      DBG_L4(char_array); // print the contents of the temporary buffer
+      DBG_L4V(char_array); // print the contents of the temporary buffer
     }
     flashDrive.closeFile(); // at the end, close the file
     printInfo("Done!");
@@ -487,18 +499,18 @@ void printInfo(const char info[])
   {
     infoLength = 40;
   }
-  DBG_L3(F("\n\n"));
+  DBG_L3("\n\n");
   for (int a = 0; a < infoLength; a++)
   {
-    DBG_L3('*');
+    Serial.print('*');
   }
-  DBG_L3_PRINTLN();
-  DBG_L3_PRINTLN(info);
+  Serial.println();
+  DBG_L3LN_V(info);
   for (int a = 0; a < infoLength; a++)
   {
-    DBG_L3('*');
+    Serial.print('*');
   }
-  DBG_L3(F("\n\n"));
+  DBG_L3("\n\n");
 }
 /*************** USB HARDWARE SERIAL CODE [END] ****************/
 /***** EEPROM SECTION [START] **/
@@ -585,10 +597,10 @@ void init_eeprom()
 }
 void clear_eeprom()
 {
-  for (int i = 0; i < EEPROM.length(); i++)
+  for (uint16_t i = 0; i < EEPROM.length(); i++)
   {
     SERIAL_PRINT("clearing eeprom at address");
-    DBG_L4_PRINTLN(i);
+    DBG_L4LN_V(i);
     EEPROM.write(i, 0);
   }
   SERIAL_PRINT("EEPROM Cleared!");
@@ -879,20 +891,20 @@ void print_holidays()
   uint8_t count = EEPROM.read(holiday_count_start_address);
   if (count > MAX_HOLIDAYS) count = 0;
   
-  DBG_L2_PRINTLN(F(""));
-  DBG_L2_PRINTLN(F("========== HOLIDAYS =========="));
-  DBG_L2(F("Total Holidays: "));
-  DBG_L2_PRINTLN(count);
+  DBG_L2_PRINTLN("");
+  DBG_L2_PRINTLN("========== HOLIDAYS ==========");
+  DBG_L2("Total Holidays: ");
+  DBG_L2LN_V(count);
   
   if (count == 0)
   {
-    DBG_L2_PRINTLN(F("No holidays configured"));
+    DBG_L2_PRINTLN("No holidays configured");
   }
   else
   {
-    DBG_L2_PRINTLN(F(""));
-    DBG_L2_PRINTLN(F("Date    Month   Year"));
-    DBG_L2_PRINTLN(F("-------------------"));
+    DBG_L2_PRINTLN("");
+    DBG_L2_PRINTLN("Date    Month   Year");
+    DBG_L2_PRINTLN("-------------------");
     
     for (uint8_t i = 0; i < count && i < MAX_HOLIDAYS; i++)
     {
@@ -902,18 +914,18 @@ void print_holidays()
       uint8_t h_year = EEPROM.read(addr + 2);
       
       // Format: DD/MM/YY
-      if (h_date < 10) DBG_L2(F("0"));
-      DBG_L2(h_date);
-      DBG_L2(F("/"));
-      if (h_month < 10) DBG_L2(F("0"));
-      DBG_L2(h_month);
-      DBG_L2(F("/"));
-      if (h_year < 10) DBG_L2(F("0"));
-      DBG_L2_PRINTLN(h_year);
+      if (h_date < 10) DBG_L2("0");
+      DBG_L2V(h_date);
+      DBG_L2("/");
+      if (h_month < 10) DBG_L2("0");
+      DBG_L2V(h_month);
+      DBG_L2("/");
+      if (h_year < 10) DBG_L2("0");
+      DBG_L2LN_V(h_year);
     }
   }
-  DBG_L2_PRINTLN(F("=============================="));
-  DBG_L2_PRINTLN(F(""));
+  DBG_L2_PRINTLN("==============================");
+  DBG_L2_PRINTLN("");
 }
 
 bool update_eeprom_data_at_index(uint8_t index, char *mobile_number_to_add, char *password_to_add, uint8_t len)
@@ -961,6 +973,7 @@ bool update_in_out_time_to_eeprom(uint8_t index, uint8_t _in_time_hour, uint8_t 
   EEPROM.write(eeprom_addr_out_time(index), _out_time_hour);
   EEPROM.write(eeprom_addr_out_time(index) + 1, _out_time_minute);
   configure_byte_address(eeprom_addr_is_inout(index));
+  return 1;
 }
 bool clear_in_out_time_to_eeprom(uint8_t index)
 {
@@ -1002,6 +1015,7 @@ bool read_in_out_time_from_eeprom(uint8_t index)
   in_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_in_time(index) + 1);
   out_time_hour[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index));
   out_time_minute[index] = (uint8_t)EEPROM.read(eeprom_addr_out_time(index) + 1);
+  return 1;
 }
 
 bool save_password_to_eeprom(uint8_t index, char *password_to_add, uint8_t len)
@@ -1012,6 +1026,7 @@ bool save_password_to_eeprom(uint8_t index, char *password_to_add, uint8_t len)
   }
   password_length[index] = len;
   update_password_to_eeprom(index);
+  return 1;
 }
 
 bool update_password_to_eeprom(uint8_t index)
@@ -1055,27 +1070,27 @@ int check_if_mobile_number_exists(char *arr)
     if (is_password_configured[i])
     {
       b_array_matched = 1;
-      DBG_L4_PRINTLN(i);
+      DBG_L4LN_V(i);
 
       for (uint8_t j = 0; j < MOBILE_NUMBER_LENGTH; j++)
       {
-        DBG_L4(mobile_number[i]);
+        DBG_L4V(mobile_number[i]);
         if (arr[j] != mobile_number[i][j])
         {
           b_array_matched = 0;
           break;
         }
-        DBG_L4_PRINTLN();
+        Serial.println();
       }
       if (b_array_matched)
       {
-        DBG_L2(i);
-        DBG_L2_PRINTLN(F(" - Mobile Number exists!!"));
+        DBG_L2V(i);
+        DBG_L2_PRINTLN(" - Mobile Number exists!!");
         return i;
       }
     }
   }
-  DBG_L2_PRINTLN(F("Mobile Number doesn't exists!!"));
+  DBG_L2_PRINTLN("Mobile Number doesn't exists!!");
   return -1;
 }
 
@@ -1085,31 +1100,31 @@ bool is_password_matched_with_any_user(char *arr, uint8_t len)
   {
     if (is_password_matched(i, arr, len))
     {
-      DBG_L2_PRINTLN(F("Password matched!!"));
+      DBG_L2_PRINTLN("Password matched!!");
       return 1;
     }
   }
-  DBG_L2_PRINTLN(F("PW not matched!!"));
+  DBG_L2_PRINTLN("PW not matched!!");
 
   return 0;
 }
 bool is_password_matched(uint8_t index, char *arr, uint8_t len)
 {
-  DBG_L4_PRINTLN(index);
+  DBG_L4LN_V(index);
   if (is_password_configured[index])
   {
     for (uint8_t i = 0; i < len /*password_length[index]*/; i++)
     {
       if (arr[i] != password_value[index][i])
       {
-        DBG_L3_PRINTLN(F("PW not matched!!"));
+        DBG_L3_PRINTLN("PW not matched!!");
         return 0;
       }
     }
-    DBG_L2_PRINTLN(F("PW matched!!"));
+    DBG_L2_PRINTLN("PW matched!!");
     return 1;
   }
-  DBG_L3_PRINTLN(F("PW not matched!!"));
+  DBG_L3_PRINTLN("PW not matched!!");
   return 0;
 }
 /*** EEPROM function [START] **/
@@ -1334,8 +1349,8 @@ void gpio_task()
   {
     previous_ir_value = current_ir_value;
     is_displayed = 0;
-    DBG_L3(F("IR value changed to "));
-    DBG_L3_PRINTLN(current_ir_value);
+    DBG_L3("IR value changed to ");
+    DBG_L3LN_V(current_ir_value);
   }
 
   if ((millis() - lastDebounceTime) > debounceDelay)
@@ -1356,7 +1371,7 @@ void gpio_task()
           if (lcd_state == LCD_STATE_ON)
           {
             lcd_power_off();
-            DBG_L3_PRINTLN(F("LCD_OFF"));
+            DBG_L3_PRINTLN("LCD_OFF");
 
           }
           else
@@ -1371,7 +1386,7 @@ void gpio_task()
             }
 
             display_on_timer = millis();
-            DBG_L3_PRINTLN(F("LCD_ON"));
+            DBG_L3_PRINTLN("LCD_ON");
 
           }
         }
@@ -1392,11 +1407,11 @@ void gpio_task()
   while (customKeypad.available())
   {
     keypadEvent e = customKeypad.read();
-    DBG_L4((char)e.bit.KEY);
+    DBG_L4V((char)e.bit.KEY);
     if (e.bit.EVENT == KEY_JUST_PRESSED)
     {
       prss_time = millis();
-      DBG_L4_PRINTLN(F(" pressed"));
+      DBG_L4_PRINTLN(" pressed");
       if (lcd_state == LCD_STATE_ON)
       {
         tone(buzzer_pin, pgm_read_word(&melody[0]), 200);
@@ -1413,8 +1428,8 @@ void gpio_task()
         continue;
       }
       key = (char)e.bit.KEY;
-      DBG_L4(F("key: "));
-      DBG_L4_PRINTLN(key);
+      DBG_L4("key: ");
+      DBG_L4LN_V(key);
       // if (lcd_state == LCD_STATE_OFF)
       display_on_timer = millis();
       switch (key)
@@ -1424,7 +1439,7 @@ void gpio_task()
         break;
       case MUTE:
         // toggle the mute setting
-        DBG_L3_PRINTLN(F("MUTE PRESSED!"));
+        DBG_L3_PRINTLN("MUTE PRESSED!");
         b_buzzer_on = 0;
         door_open_time = millis();
         break;
@@ -1433,14 +1448,14 @@ void gpio_task()
         rels_time = millis();
         is_displayed = 0;
         b_command_close_door = 1;
-        DBG_L3_PRINTLN(F("4442"));
+        DBG_L3_PRINTLN("4442");
         b_error_in_door_close = 0;
         display_screen = LOCK_DOOR_STATE;
         break;
       default:
         if (lcd_state == LCD_STATE_ON)
         {
-          DBG_L4_PRINTLN(F("pressed default case"));
+          DBG_L4_PRINTLN("pressed default case");
           rels_time = millis();
           is_new_key = 1;
           break;
@@ -1573,9 +1588,9 @@ void dc_motor_task()
       
       // Print door state on sensor change
       if (i == 0) {
-        DBG_L2_PRINTLN(is_door_open() ? F("DOOR OPEN") : F("DOOR OPEN SENSOR UNHIT"));
+        DBG_L2LN_V(is_door_open() ? F("DOOR OPEN") : F("DOOR OPEN SENSOR UNHIT"));
       } else {
-        DBG_L2_PRINTLN(is_door_close() ? F("DOOR CLOSE") : F("DOOR CLOSE SENSOR UNHIT"));
+        DBG_L2LN_V(is_door_close() ? F("DOOR CLOSE") : F("DOOR CLOSE SENSOR UNHIT"));
       }
     }
   }
@@ -1616,13 +1631,13 @@ void dc_motor_on(int direction)
 {
   if (direction == CW)
   {
-     DBG_L3_PRINTLN(F("Moving CW"));
+     DBG_L3_PRINTLN("Moving CW");
      digitalWrite(dc_motor_pin[0], 0);
      digitalWrite(dc_motor_pin[1], 1);
   }
   else if (direction == CCW)
   {
-     DBG_L3_PRINTLN(F("Moving CCW"));
+     DBG_L3_PRINTLN("Moving CCW");
      digitalWrite(dc_motor_pin[0], 1);
      digitalWrite(dc_motor_pin[1], 0);
   }
@@ -1751,14 +1766,14 @@ void jump_to_master_main()
 {
   my_delay(3);
   is_displayed = 0;
-  DBG_L3_PRINTLN(F("MASTER_MAIN"));
+  DBG_L3_PRINTLN("MASTER_MAIN");
   display_screen = MASTER_MAIN;
 }
 void jump_to_user_main()
 {
   my_delay(3);
   is_displayed = 0;
-  DBG_L3_PRINTLN(F("USER_MAIN"));
+  DBG_L3_PRINTLN("USER_MAIN");
   display_screen = USER;
 }
 void door_open_close_fsm()
@@ -1855,7 +1870,7 @@ inline void print_temp_msg_P(const char* msg)
 {
   char buffer[30];
   strcpy_P(buffer, msg);
-  DBG_L2_PRINTLN(buffer);
+  DBG_L2LN_V(buffer);
 }
 
 // Optimized temperature & vibration sensor task
@@ -1890,7 +1905,7 @@ void temp_task()
       vibration_change_counter++;
       
       //#ifdef DEBUG
-      Serial.print(F("Vibration_counter -->> "));
+      SERIAL_PRINT("Vibration_counter -->> ");
       Serial.println(vibration_change_counter);
       //#endif
       
@@ -1954,8 +1969,8 @@ void temp_task()
     }
     
     // Print temperature (using F() macro to save RAM)
-    DBG_L3(F("Temperature value is : "));
-    DBG_L3_PRINTLN(temperature_value);
+    DBG_L3("Temperature value is : ");
+    DBG_L3LN_V(temperature_value);
   }
 }
 // Gun point activation FSM - sends messages and calls for alarms
@@ -2037,7 +2052,7 @@ inline bool is_holiday_blocking_access()
   update_date_time_from_rtc();
   if (is_holiday(date, month, year))
   {
-    DBG_L2_PRINTLN(F("Holiday - No Access Allowed!"));
+    DBG_L2_PRINTLN("Holiday - No Access Allowed!");
     return true;
   }
   return false;
@@ -2064,12 +2079,12 @@ bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
 
     if (now_time >= in_time && now_time <= out_time)
     {
-      DBG_L2_PRINTLN(F("Access Allowed!"));
+      DBG_L2_PRINTLN("Access Allowed!");
       return 1;
     }
     else
     {
-      DBG_L2_PRINTLN(F("No Access Allowed!"));
+      DBG_L2_PRINTLN("No Access Allowed!");
       return 0;
     }
   }
@@ -2118,7 +2133,7 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     delay(2000);
     display_screen = MAIN;
     pass_length = 0;
-    return 0;
+    return;
   }
 
   // Check time slot restrictions
@@ -2133,17 +2148,17 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     write_door_open_count_to_eeprom(door_open_count);
     if (user_id == 1)
     {
-      DBG_L3_PRINTLN(F("MASTER_MAIN"));
+      DBG_L3_PRINTLN("MASTER_MAIN");
       display_screen = MASTER_MAIN;
       b_command_open_door = 1;
     }
     else
     {
-      DBG_L3_PRINTLN(F("USER"));
+      DBG_L3_PRINTLN("USER");
       display_screen = USER;
       b_command_open_door = 1;
     }
-    return 1;
+    return;
   }
   else
   {
@@ -2154,7 +2169,7 @@ void check_if_door_access_is_allowed(uint8_t user_id)
     delay(1000);
     display_screen = MAIN;
     pass_length = 0;
-    return 0;
+    return;
   }
 }
 #define FINGERPRINT_FSM_STATE_DEFAULT           1
@@ -2184,15 +2199,15 @@ bool verify_dual_password(){
     if(first_user_verified){
       if(user_id == 1){
         // Master user - allow access to menu (no door opening)
-        DBG_L3_PRINTLN(F("MASTER_INPUT_STATE"));
+        DBG_L3_PRINTLN("MASTER_INPUT_STATE");
         display_screen = MASTER_INPUT_STATE;
         is_displayed = 0;
         user_bio_auth_fail_count = 0; // Reset on successful authentication
         first_user_verified = 0; // reset first user verified flag as it's just open master menu
       }else{
         // Regular user - check holiday before allowing door access
-        DBG_L2(F("USER ID -- >"));
-        DBG_L2_PRINTLN(user_id);
+        DBG_L2("USER ID -- >");
+        DBG_L2LN_V(user_id);
         
         // Holiday check - blocks door access on holidays
         if (is_holiday_blocking_access())
@@ -2232,8 +2247,8 @@ bool verify_dual_password(){
   }
   else
   {
-    DBG_L2(F("USER ID is "));
-    DBG_L2_PRINTLN(user_id);
+    DBG_L2("USER ID is ");
+    DBG_L2LN_V(user_id);
     lcd.clear();
     lcd.setCursor(0, 0);
     LCD_PRINT("Invld Password!!");
@@ -2285,10 +2300,11 @@ bool verify_dual_password(){
     
     return 0;
   }
+  return 0;
 }
 bool verify_password()
 {
-  DBG_L4_PRINTLN(password);
+  DBG_L4LN_V(password);
   if (password[0] == master_reset_pw[0] && pass_length == MASTER_PW_LEN)
   {
     bool b_pw_matched = 1;
@@ -2331,10 +2347,11 @@ bool verify_password()
   if (is_password_valid(user_id, &password[user_id_length], pass_length - user_id_length))
   {
     // TODO: Unlock the safe
-    DBG_L2(F("USER ID -- >"));
-    DBG_L2_PRINTLN(user_id);
+    DBG_L2("USER ID -- >");
+    DBG_L2LN_V(user_id);
     // call funtion
     check_if_door_access_is_allowed(user_id);
+    return 1;
   }
   else
   {
@@ -2351,12 +2368,12 @@ bool verify_password()
 uint8_t otp[6];
 uint8_t otp_length = 0;
 uint8_t generated_otp[6] = {
-    random(0, 9),
-    random(0, 9),
-    random(0, 9),
-    random(0, 9),
-    random(0, 9),
-    random(0, 9),
+    (uint8_t)random(0, 9),
+    (uint8_t)random(0, 9),
+    (uint8_t)random(0, 9),
+    (uint8_t)random(0, 9),
+    (uint8_t)random(0, 9),
+    (uint8_t)random(0, 9),
 };
 
 uint8_t master_otp[6] = {
@@ -2384,8 +2401,8 @@ void generate_random_otp()
     generated_otp[i] = random(temp, 9);
     char_generated_otp[i] = generated_otp[i] + '0';
   }
-  DBG_L3(F("Generated OTP : "));
-  DBG_L3_PRINTLN((char_generated_otp));
+  DBG_L3("Generated OTP : ");
+  DBG_L3LN_V(char_generated_otp);
 }
 void input_otp_fsm()
 {
@@ -2431,10 +2448,10 @@ void input_otp_fsm()
         {
           for (uint8_t i = 0; i < 6; i++)
           {
-            DBG_L4(otp[i]);
-            DBG_L4(F(":"));
-            DBG_L4(generated_otp[i]);
-            DBG_L4_PRINTLN(F(">"));
+            DBG_L4V(otp[i]);
+            DBG_L4(":");
+            DBG_L4V(generated_otp[i]);
+            DBG_L4_PRINTLN(">");
             if (otp[i] != generated_otp[i])
             {
               b_otp_not_matched = 1;
@@ -2458,7 +2475,7 @@ void input_otp_fsm()
         }
         if (!b_otp_not_matched)
         {
-          DBG_L3_PRINTLN(F("ENTER-------2---------"));
+          DBG_L3_PRINTLN("ENTER-------2---------");
           b_gun_point_activation_triggerd = 0;
           b_vibration_alarm_triggered = 0;
           b_temperature_alarm_triggerd = 0;
@@ -2474,7 +2491,7 @@ void input_otp_fsm()
         else
         {
           b_otp_not_matched = 0;
-          DBG_L3_PRINTLN(F("ENTER-------3---------"));
+          DBG_L3_PRINTLN("ENTER-------3---------");
           otp_length = 0;
           memset(otp, '\0', sizeof(otp));
           is_displayed = 0;
@@ -2612,8 +2629,8 @@ void fingerprint_manager_fsm(){
       }
       break;
     case FINGERPRINT_FSM_STATE_DOOR_UNLOCKED:
-      DBG_L2(F("USER ID Found at ID "));
-      DBG_L2_PRINTLN(user_id);
+      DBG_L2("USER ID Found at ID ");
+      DBG_L2LN_V(user_id);
       
       // Holiday check - blocks door access on holidays
       if (is_holiday_blocking_access())
@@ -2727,7 +2744,7 @@ void password_input_fsm()
         {
           is_displayed = 0;
           // Check for password validation
-          DBG_L4_PRINTLN(password);
+          DBG_L4LN_V(password);
           switch (display_screen)
           {
           case MAIN:
@@ -2740,7 +2757,7 @@ void password_input_fsm()
               lcd.clear();
               lcd_power_off();
               lcd_power_on();
-              DBG_L1_PRINTLN(F("GUN POINT ACTIVATED "));
+              DBG_L1_PRINTLN("GUN POINT ACTIVATED ");
               // if (display_screen == MASTER_MAIN)
               // else if (display_screen == USER)
             }
@@ -2996,7 +3013,7 @@ void mobile_number_input_fsm(uint8_t id)
           is_displayed = 0;
           // Check for password validation
           for (uint8_t i = 0; i < 10; i++)
-            DBG_L4_PRINTLN(input_mobile_number[i]);
+            DBG_L4LN_V(input_mobile_number[i]);
           if (input_mobile_number_count == 0)
           {
             input_mobile_number_count++;
@@ -3042,8 +3059,8 @@ void mobile_number_input_fsm(uint8_t id)
                 input_mobile_number_count = 0;
                 input_mobile_number_length = 0;
                 b_mobile_number_not_matched = 1;
-                DBG_L2(F("USER ID ---->"));
-                DBG_L2_PRINTLN(id);
+                DBG_L2("USER ID ---->");
+                DBG_L2LN_V(id);
                 update_eeprom_data_at_index((id - 1), input_mobile_number, password_value[(id - 1)], password_length[(id - 1)]);
                 my_delay(1);
                 is_displayed = 0;
@@ -3119,7 +3136,7 @@ void backup_screen_fsm()
         lcd.setCursor(0, 0);
         lcd.print("  BACKUP ");
         lcd.setCursor(0, 1);
-        DBG_L2(F("  COMPLETED!!"));
+        DBG_L2("  COMPLETED!!");
         is_displayed = 0;
         display_screen = MASTER_MAIN;
       }
@@ -3133,7 +3150,7 @@ void backup_screen_fsm()
           lcd.setCursor(0, 0);
           LCD_PRINT("  BACKUP ");
           lcd.setCursor(0, 1);
-          DBG_L3(F("IN PROGRESS .. "));
+          DBG_L3("IN PROGRESS .. ");
         }
         else
         {
@@ -3142,7 +3159,7 @@ void backup_screen_fsm()
           lcd.setCursor(0, 0);
           LCD_PRINT("  BACKUP ");
           lcd.setCursor(0, 1);
-          DBG_L3(F("IN PROGRESS .. .."));
+          DBG_L3("IN PROGRESS .. ..");
         }
       }
     }
@@ -3199,7 +3216,7 @@ void backup_screen_fsm()
         lcd.setCursor(0, 0);
         LCD_PRINT("  BACKUP ");
         lcd.setCursor(0, 1);
-        DBG_L3(F("IN PROGRESS .. .."));
+        DBG_L3("IN PROGRESS .. ..");
         is_displayed = 0;
         b_backup_in_progress = 1;
         b_backup_complete = 0;
@@ -3549,7 +3566,7 @@ void holiday_menu_fsm()
           }
           is_displayed = 0;
         }
-        else if (key == ENTER && holiday_input_year >= 0)
+        else if (key == ENTER)
         {
           if (holiday_is_remove_mode)
           {
@@ -3698,7 +3715,7 @@ void holiday_menu_fsm()
 }
 void finger_print_sensor_init()
 {
-  DBG_L2_PRINTLN(F("\n\nAdafruit finger detect test"));
+  DBG_L2_PRINTLN("\n\nAdafruit finger detect test");
 
   // set the data rate for the sensor serial port
   finger.begin(57600);
@@ -3706,43 +3723,43 @@ void finger_print_sensor_init()
   delay(5);
   if (finger.verifyPassword())
   {
-    DBG_L2_PRINTLN(F("Found fingerprint sensor!"));
+    DBG_L2_PRINTLN("Found fingerprint sensor!");
   }
   else
   {
-    DBG_L1_PRINTLN(F("Did not find fingerprint sensor :("));
+    DBG_L1_PRINTLN("Did not find fingerprint sensor :(");
     // while (1)
   }
 
-  DBG_L3_PRINTLN(F("Reading sensor parameters"));
+  DBG_L3_PRINTLN("Reading sensor parameters");
   finger.getParameters();
-  DBG_L3(F("Status: 0x"));
-  DBG_L3_PRINTLN(finger.status_reg, HEX);
-  DBG_L3(F("Sys ID: 0x"));
-  DBG_L3_PRINTLN(finger.system_id, HEX);
-  DBG_L3(F("Capacity: "));
-  DBG_L3_PRINTLN(finger.capacity);
-  DBG_L3(F("Security level: "));
-  DBG_L3_PRINTLN(finger.security_level);
-  DBG_L3(F("Device address: "));
-  DBG_L3_PRINTLN(finger.device_addr, HEX);
-  DBG_L3(F("Packet len: "));
-  DBG_L3_PRINTLN(finger.packet_len);
-  DBG_L3(F("Baud rate: "));
-  DBG_L3_PRINTLN(finger.baud_rate);
+  DBG_L3("Status: 0x");
+  DBG_L3LN_V(finger.status_reg, HEX);
+  DBG_L3("Sys ID: 0x");
+  DBG_L3LN_V(finger.system_id, HEX);
+  DBG_L3("Capacity: ");
+  DBG_L3LN_V(finger.capacity);
+  DBG_L3("Security level: ");
+  DBG_L3LN_V(finger.security_level);
+  DBG_L3("Device address: ");
+  DBG_L3LN_V(finger.device_addr, HEX);
+  DBG_L3("Packet len: ");
+  DBG_L3LN_V(finger.packet_len);
+  DBG_L3("Baud rate: ");
+  DBG_L3LN_V(finger.baud_rate);
 
   finger.getTemplateCount();
 
   if (finger.templateCount == 0)
   {
-    DBG_L2(F("Sensor doesn't contain any fingerprint data. Please run the 'enroll' example."));
+    DBG_L2("Sensor doesn't contain any fingerprint data. Please run the 'enroll' example.");
   }
   else
   {
-    DBG_L3_PRINTLN(F("Waiting for valid finger..."));
-    DBG_L3(F("Sensor contains "));
-    DBG_L3(finger.templateCount);
-    DBG_L3_PRINTLN(F(" templates"));
+    DBG_L3_PRINTLN("Waiting for valid finger...");
+    DBG_L3("Sensor contains ");
+    DBG_L3V(finger.templateCount);
+    DBG_L3_PRINTLN(" templates");
   }
 }
 int8_t getFingerprintID()
@@ -3751,7 +3768,7 @@ int8_t getFingerprintID()
   switch (p)
   {
   case FINGERPRINT_OK:
-    DBG_L3_PRINTLN(F("Image taken"));
+    DBG_L3_PRINTLN("Image taken");
     break;
   case FINGERPRINT_NOFINGER:
     return -1;
@@ -3767,14 +3784,14 @@ int8_t getFingerprintID()
   switch (p)
   {
   case FINGERPRINT_OK:
-    DBG_L3_PRINTLN(F("Image converted"));
+    DBG_L3_PRINTLN("Image converted");
     break;
   // case FINGERPRINT_IMAGEMESS:
   // case FINGERPRINT_PACKETRECIEVEERR:
   // case FINGERPRINT_FEATUREFAIL:
   // case FINGERPRINT_INVALIDIMAGE:
   default:
-    DBG_L1_PRINTLN(F("Unknown error"));
+    DBG_L1_PRINTLN("Unknown error");
     return -1;
   }
 
@@ -3782,25 +3799,25 @@ int8_t getFingerprintID()
   p = finger.fingerSearch();
   if (p == FINGERPRINT_OK)
   {
-    DBG_L2_PRINTLN(F("Found a print match!"));
+    DBG_L2_PRINTLN("Found a print match!");
     // } else if (p == FINGERPRINT_PACKETRECIEVEERR) {
   }
   else if (p == FINGERPRINT_NOTFOUND)
   {
-    DBG_L2_PRINTLN(F("Did not find a match"));
+    DBG_L2_PRINTLN("Did not find a match");
     return MAX_NUM_OF_USERS + 2;
   }
   else
   {
-    DBG_L1_PRINTLN(F("Unknown error"));
+    DBG_L1_PRINTLN("Unknown error");
     return -1;
   }
 
   // found a match!
-  DBG_L2(F("Found ID #"));
-  DBG_L2(finger.fingerID);
-  DBG_L2(F(" with confidence of "));
-  DBG_L2_PRINTLN(finger.confidence);
+  DBG_L2("Found ID #");
+  DBG_L2V(finger.fingerID);
+  DBG_L2(" with confidence of ");
+  DBG_L2LN_V(finger.confidence);
 
   return finger.fingerID;
 }
@@ -3813,24 +3830,24 @@ uint8_t deleteFingerprint(uint8_t id)
 
   if (p == FINGERPRINT_OK)
   {
-    DBG_L2_PRINTLN(F("Deleted!"));
+    DBG_L2_PRINTLN("Deleted!");
   }
   else if (p == FINGERPRINT_PACKETRECIEVEERR)
   {
-    DBG_L1_PRINTLN(F("Communication error"));
+    DBG_L1_PRINTLN("Communication error");
   }
   else if (p == FINGERPRINT_BADLOCATION)
   {
-    DBG_L1_PRINTLN(F("Could not delete in that location"));
+    DBG_L1_PRINTLN("Could not delete in that location");
   }
   else if (p == FINGERPRINT_FLASHERR)
   {
-    DBG_L1_PRINTLN(F("Error writing to flash"));
+    DBG_L1_PRINTLN("Error writing to flash");
   }
   else
   {
-    DBG_L1(F("Unknown error: 0x"));
-    DBG_L1_PRINTLN(p, HEX);
+    DBG_L1("Unknown error: 0x");
+    DBG_L1LN_V(p, HEX);
   }
 
   return p;
@@ -3845,8 +3862,8 @@ void clear_screen_and_enroll_finger()
 int8_t getFingerprintEnroll(int id)
 {
   int p = -1;
-  DBG_L3(F("Waiting for valid finger to enroll as #"));
-  DBG_L3_PRINTLN(id);
+  DBG_L3("Waiting for valid finger to enroll as #");
+  DBG_L3LN_V(id);
   clear_screen_and_enroll_finger();
   while (p != FINGERPRINT_OK)
   {
@@ -3854,13 +3871,13 @@ int8_t getFingerprintEnroll(int id)
     switch (p)
     {
     case FINGERPRINT_OK:
-      DBG_L3_PRINTLN(F("Image taken"));
+      DBG_L3_PRINTLN("Image taken");
       LCD_PRINT("IMAGE TAKEN");
       break;
     case FINGERPRINT_NOFINGER:
       break;
     default:
-      DBG_L1_PRINTLN(F("Unknown error"));
+      DBG_L1_PRINTLN("Unknown error");
       LCD_PRINT("UNKNOWN ERROR!");
       break;
     }
@@ -3874,29 +3891,29 @@ int8_t getFingerprintEnroll(int id)
   switch (p)
   {
   case FINGERPRINT_OK:
-    DBG_L3_PRINTLN(F("Image converted"));
+    DBG_L3_PRINTLN("Image converted");
     LCD_PRINT("IMAGE CONVERTED");
     break;
   default:
-    DBG_L1_PRINTLN(F("Unknown error"));
+    DBG_L1_PRINTLN("Unknown error");
     LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
   clear_screen_and_enroll_finger();
   LCD_PRINT("REMOVE FINGER!");
-  DBG_L3_PRINTLN(F("Remove finger"));
+  DBG_L3_PRINTLN("Remove finger");
   delay(2000);
   p = 0;
   while (p != FINGERPRINT_NOFINGER)
   {
     p = finger.getImage();
   }
-  DBG_L3(F("ID "));
-  DBG_L3_PRINTLN(id);
+  DBG_L3("ID ");
+  DBG_L3LN_V(id);
   p = -1;
   clear_screen_and_enroll_finger();
   LCD_PRINT("CONFIRM FINGER!");
-  DBG_L3_PRINTLN(F("Place same finger again"));
+  DBG_L3_PRINTLN("Place same finger again");
   while (p != FINGERPRINT_OK)
   {
     p = finger.getImage();
@@ -3904,14 +3921,14 @@ int8_t getFingerprintEnroll(int id)
     {
     case FINGERPRINT_OK:
       clear_screen_and_enroll_finger();
-      DBG_L3_PRINTLN(F("Image taken"));
+      DBG_L3_PRINTLN("Image taken");
       LCD_PRINT("IMAGE TAKEN");
       break;
     case FINGERPRINT_NOFINGER:
       break;
     default:
       clear_screen_and_enroll_finger();
-      DBG_L1_PRINTLN(F("Unknown error"));
+      DBG_L1_PRINTLN("Unknown error");
       LCD_PRINT("UNKNOWN ERROR!");
       break;
     }
@@ -3923,46 +3940,46 @@ int8_t getFingerprintEnroll(int id)
   switch (p)
   {
   case FINGERPRINT_OK:
-    DBG_L3_PRINTLN(F("Image converted"));
+    DBG_L3_PRINTLN("Image converted");
     LCD_PRINT("IMAGE CONVERTED!");
     break;
   default:
-    DBG_L1_PRINTLN(F("Unknown error"));
+    DBG_L1_PRINTLN("Unknown error");
     LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
 
   // OK converted!
-  DBG_L3(F("Creating model for #"));
-  DBG_L3_PRINTLN(id);
+  DBG_L3("Creating model for #");
+  DBG_L3LN_V(id);
   clear_screen_and_enroll_finger();
   p = finger.createModel();
   if (p == FINGERPRINT_OK)
   {
-    DBG_L2_PRINTLN(F("Prints matched!"));
+    DBG_L2_PRINTLN("Prints matched!");
     LCD_PRINT("PRINTS MATCHED!");
   }
   else
   {
-    DBG_L1_PRINTLN(F("Unknown error"));
+    DBG_L1_PRINTLN("Unknown error");
     LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
 
-  DBG_L3(F("ID "));
-  DBG_L3_PRINTLN(id);
+  DBG_L3("ID ");
+  DBG_L3LN_V(id);
   clear_screen_and_enroll_finger();
   p = finger.storeModel(id);
   if (p == FINGERPRINT_OK)
   {
-    DBG_L2_PRINTLN(F("Stored!"));
+    DBG_L2_PRINTLN("Stored!");
     LCD_PRINT("STORED!");
     delay(2000);
     return true;
   }
   else
   {
-    DBG_L1_PRINTLN(F("Unknown error"));
+    DBG_L1_PRINTLN("Unknown error");
     LCD_PRINT("UNKNOWN ERROR!");
     return -1;
   }
@@ -4052,10 +4069,10 @@ void user_id_input_fsm()
         if (user_id_input_length > 0)
         {
           uint8_t user_id = atoi(user_id_input);
-          DBG_L3(F("User ID entered: "));
-          DBG_L3_PRINTLN(user_id);
-          DBG_L3(F("Input length: "));
-          DBG_L3_PRINTLN(user_id_input_length);
+          DBG_L3("User ID entered: ");
+          DBG_L3LN_V(user_id);
+          DBG_L3("Input length: ");
+          DBG_L3LN_V(user_id_input_length);
           if (user_id >= 1 && user_id <= MAX_NUM_OF_USERS)
           {
             switch (user_id_input_screen_type)
@@ -4187,8 +4204,8 @@ void update_queue(uint8_t message_type, uint8_t message)
     type_list[queue_index] = message_type;
     message_details[queue_index] = message;
     queue_index++;
-    DBG_L3(F("queue updated .... "));
-    DBG_L3_PRINTLN(queue_index);
+    DBG_L3("queue updated .... ");
+    DBG_L3LN_V(queue_index);
   }
 }
 
@@ -4217,7 +4234,7 @@ void lcd_print_P(const char* str) {
 }
 
 // Helper function to handle common door opening display logic
-void display_door_opening(const char* msg, bool is_master) {
+void display_door_opening(const char* msg, bool /*is_master*/) {
   lcd.clear();
   lcd_print_P(msg);
   lcd.print(door_open_count);
@@ -4253,7 +4270,7 @@ void display_door_opened(bool is_master) {
 
 // Helper function to handle common door closing display logic
 void display_door_closing() {
-  DBG_L2_PRINTLN(F("CLOSING DOOR"));
+  DBG_L2_PRINTLN("CLOSING DOOR");
   door_open_start_time = millis();
   lcd.clear();
   lcd_print_P(LCD_STR_CLOSING_DOOR);
@@ -4262,7 +4279,7 @@ void display_door_closing() {
 }
 
 // Helper function to handle common door closed display logic
-void display_door_closed(bool is_master) {
+void display_door_closed(bool /*is_master*/) {
   lcd.clear();
   lcd_print_P(LCD_STR_DOOR_CLOSED);
   lcd.print(door_open_count);
@@ -4335,7 +4352,7 @@ void lcd_task()
     }
     else if (!b_error_in_door_open && current_millis - door_open_start_time > DOOR_OPEN_TIMEOUT)
     {
-      DBG_L1_PRINTLN(F("ERROR IN OPENING DOOR"));
+      DBG_L1_PRINTLN("ERROR IN OPENING DOOR");
       b_error_in_door_open = 1;
       is_displayed = 0;
       door_error_start_time = current_millis;
@@ -4346,7 +4363,7 @@ void lcd_task()
       b_command_open_door = 0;
       b_error_in_door_open = 0;
       b_command_close_door = 1;
-      DBG_L3_PRINTLN(F("4443"));
+      DBG_L3_PRINTLN("4443");
       b_error_in_door_close = 0;
       display_screen = LOCK_DOOR_STATE;
       break;
@@ -4357,10 +4374,10 @@ void lcd_task()
     applicable_buzzer_timeout = buzzer_timeout * 60000UL;  // Use UL suffix for unsigned long constant
     if (current_millis - door_open_time > applicable_buzzer_timeout)
     {
-      DBG_L4_PRINTLN(applicable_buzzer_timeout);
-      DBG_L3_PRINTLN(F("Buzzer ON"));
-      DBG_L4_PRINTLN(door_open_time);
-      DBG_L4_PRINTLN(current_millis);
+      DBG_L4LN_V(applicable_buzzer_timeout);
+      DBG_L3_PRINTLN("Buzzer ON");
+      DBG_L4LN_V(door_open_time);
+      DBG_L4LN_V(current_millis);
       door_open_time = current_millis;
       b_buzzer_on = 1;
       
@@ -4386,8 +4403,8 @@ void lcd_task()
     if (is_new_key)
     {
       is_new_key = 0;
-      DBG_L3_PRINTLN(F("MASTER_MAIN"));
-      DBG_L4_PRINTLN(key);
+      DBG_L3_PRINTLN("MASTER_MAIN");
+      DBG_L4LN_V(key);
       switch (key)
       {
       case '1':
@@ -4406,7 +4423,7 @@ void lcd_task()
         is_displayed = 0;
         date_time_len = 0;
         memset(date_time, '\0', 13);
-        DBG_L3_PRINTLN(F("MASTER_DAT_TIM"));
+        DBG_L3_PRINTLN("MASTER_DAT_TIM");
         display_screen = MASTER_DAT_TIM;
         break;
       case '5':
@@ -4449,7 +4466,7 @@ void lcd_task()
       case LOCK:
         is_displayed = 0;
         b_command_close_door = 1;
-        DBG_L3_PRINTLN(F("4445"));
+        DBG_L3_PRINTLN("4445");
         b_error_in_door_close = 0;
         display_screen = LOCK_DOOR_STATE;
         break;
@@ -4483,7 +4500,7 @@ void lcd_task()
         dc_motor_stop();
         
         display_screen = (user_id == 1) ? MASTER_MAIN : USER;
-        DBG_L3_PRINTLN(display_screen == MASTER_MAIN ? F("MASTER_MAIN") : F("USER"));
+        DBG_L3LN_V(display_screen == MASTER_MAIN ? F("MASTER_MAIN") : F("USER"));
         break;
       }
       else if (is_door_closing)
@@ -4587,7 +4604,7 @@ void lcd_task()
     }
     else if (!b_error_in_door_open && current_millis - door_open_start_time > DOOR_OPEN_TIMEOUT)
     {
-      DBG_L1_PRINTLN(F("ERROR IN OPENING DOOR"));
+      DBG_L1_PRINTLN("ERROR IN OPENING DOOR");
       b_error_in_door_open = 1;
       is_displayed = 0;
       door_error_start_time = current_millis;
@@ -4598,7 +4615,7 @@ void lcd_task()
       b_command_open_door = 0;
       b_error_in_door_open = 0;
       b_command_close_door = 1;
-      DBG_L3_PRINTLN(F("4446"));
+      DBG_L3_PRINTLN("4446");
       b_error_in_door_close = 0;
       display_screen = LOCK_DOOR_STATE;
       break;
@@ -4644,10 +4661,10 @@ void lcd_task()
       applicable_buzzer_timeout = buzzer_timeout * 60000UL;  // Use UL suffix for unsigned long constant
       if (current_millis - door_open_time > applicable_buzzer_timeout)
       {
-        DBG_L4_PRINTLN(applicable_buzzer_timeout);
-        DBG_L3_PRINTLN(F("Buzzer ON"));
-        DBG_L4_PRINTLN(door_open_time);
-        DBG_L4_PRINTLN(current_millis);
+        DBG_L4LN_V(applicable_buzzer_timeout);
+        DBG_L3_PRINTLN("Buzzer ON");
+        DBG_L4LN_V(door_open_time);
+        DBG_L4LN_V(current_millis);
         door_open_time = current_millis;
         b_buzzer_on = 1;
         
@@ -4678,7 +4695,7 @@ void lcd_task()
     else if (is_new_key)
     {
       is_new_key = 0;
-      DBG_L3_PRINTLN(F("USER_MAIN"));
+      DBG_L3_PRINTLN("USER_MAIN");
       switch (key)
       {
       case LOCK:
@@ -4688,7 +4705,7 @@ void lcd_task()
         is_displayed = 0;
         display_screen = LOCK_DOOR_STATE;
         b_command_close_door = 1;
-        DBG_L3_PRINTLN(F("4447"));
+        DBG_L3_PRINTLN("4447");
         break;
       case '1':
         is_displayed = 0;
@@ -4717,12 +4734,12 @@ bool is_password_valid(uint8_t _user_id, char *password, uint8_t pass_len)
     return 0;
   }
   bool status = is_password_matched(user_index, password, pass_len);
-  DBG_L4(F("user_id: "));
-  DBG_L4_PRINTLN(_user_id);
-  DBG_L4(F("password: "));
-  DBG_L4_PRINTLN(password);
-  DBG_L4(F("pass_len: "));
-  DBG_L4_PRINTLN(pass_len);
+  DBG_L4("user_id: ");
+  DBG_L4LN_V(_user_id);
+  DBG_L4("password: ");
+  DBG_L4LN_V(password);
+  DBG_L4("pass_len: ");
+  DBG_L4LN_V(pass_len);
   return status;
 }
 /*************** LCD CODE [END] ******************/
@@ -4759,12 +4776,11 @@ uint8_t para_count = 0;
 uint8_t cmd_length = 0;
 
 /* api function pointer array variables [START] */
-typedef char *(*functionPtr)();
 functionPtr func_list[10] = {};
 
 #define MAX_API 10
 uint8_t total_api = 0;
-static char api_list[MAX_API + 1][20] = {"{\"status\":\"failure\",\"data\":\"ANF or WSP \"}"};
+static char api_list[MAX_API + 1][45] = {"{\"status\":\"failure\",\"data\":\"ANF or WSP \"}"};
 /* api function pointer array variables [END] */
 
 uint32_t call_start_time = millis();
@@ -4810,7 +4826,7 @@ inline bool check_timeout_and_send(unsigned long current_millis, uint32_t timeou
 inline void print_status_P(const char* msg) {
   char buffer[30];
   strcpy_P(buffer, msg);
-  DBG_L4_PRINTLN(buffer);
+  DBG_L4LN_V(buffer);
 }
 
 void gsm_housekeeping_task()
@@ -4822,7 +4838,7 @@ void gsm_housekeeping_task()
   if (sms_master_verified && (current_millis - sms_master_verified_time > SMS_MASTER_VERIFY_TIMEOUT))
   {
     sms_master_verified = false;
-    DBG_L2_PRINTLN(F("SMS master verification timeout - reset"));
+    DBG_L2_PRINTLN("SMS master verification timeout - reset");
   }
   
   if (queue_index > 0)
@@ -4835,10 +4851,10 @@ void gsm_housekeeping_task()
     {
     case OPEN_DOOR_MSG:
       #ifdef DEBUG
-      DBG_L4(F("message details -->"));
-      DBG_L4(current_msg_detail);
-      DBG_L4(F(" | "));
-      DBG_L4_PRINTLN(current_msg_detail - 1);
+      DBG_L4("message details -->");
+      DBG_L4LN_V(current_msg_detail);
+      DBG_L4(" | ");
+      DBG_L4LN_V(current_msg_detail - 1);
       #endif
       
       // Original behaviour: send one door-open message based on queue entry
@@ -4856,7 +4872,7 @@ void gsm_housekeeping_task()
       if (check_timeout_and_send(current_millis, 10000UL))
       {
         print_status_P(GSM_MSG_GUNPOINT);
-        DBG_L4_PRINTLN(current_msg_detail);
+        DBG_L4LN_V(current_msg_detail);
         SendMessageGunPointMessage(current_msg_detail, char_generated_otp);
         queue_index--;
       }
@@ -4866,7 +4882,7 @@ void gsm_housekeeping_task()
       if (check_timeout_and_send(current_millis, 10000UL))
       {
         print_status_P(GSM_MSG_VIBRATION);
-        DBG_L4_PRINTLN(current_msg_detail);
+        DBG_L4LN_V(current_msg_detail);
         SendMessageVibrationAlarmMessage(current_msg_detail, char_generated_otp);
         queue_index--;
       }
@@ -4876,7 +4892,7 @@ void gsm_housekeeping_task()
       if (check_timeout_and_send(current_millis, 10000UL))
       {
         print_status_P(GSM_MSG_TEMPERATURE);
-        DBG_L4_PRINTLN(current_msg_detail);
+        DBG_L4LN_V(current_msg_detail);
         SendMessageTempAlarmMessage(current_msg_detail, char_generated_otp);
         queue_index--;
       }
@@ -4886,7 +4902,7 @@ void gsm_housekeeping_task()
       if (check_timeout_and_send(current_millis, call_timeout))
       {
         print_status_P(GSM_MSG_GUNPOINT_CALL);
-        DBG_L4_PRINTLN(current_msg_detail);
+        DBG_L4LN_V(current_msg_detail);
         MakeCallWithNumber(current_msg_detail);
         queue_index--;
       }
@@ -4896,7 +4912,7 @@ void gsm_housekeeping_task()
       if (check_timeout_and_send(current_millis, 10000UL))
       {
         print_status_P(GSM_MSG_AUTH_FAIL);
-        DBG_L4_PRINTLN(current_msg_detail);
+        DBG_L4LN_V(current_msg_detail);
         // Send auth fail message for this queue entry only
         SendMessageAuthFail(current_msg_detail);
         queue_index--;
@@ -4906,7 +4922,7 @@ void gsm_housekeeping_task()
     case DOOR_TIMEOUT_MSG:
       if (check_timeout_and_send(current_millis, 10000UL))
       {
-        DBG_L4_PRINTLN(current_msg_detail);
+        DBG_L4LN_V(current_msg_detail);
         // Send door timeout alert message for this queue entry only
         SendMessageDoorTimeout(current_msg_detail);
         queue_index--;
@@ -5036,7 +5052,7 @@ void gsm_module_task()
     uint16_t len = read_serial_to_buffer(Serial, serial_buffer, sizeof(serial_buffer));
     if (len > 0)
     {
-      DBG_L4_PRINTLN(serial_buffer);
+      DBG_L4LN_V(serial_buffer);
       process_string(serial_buffer, len);
     }
   }
@@ -5046,7 +5062,7 @@ void gsm_module_task()
     uint16_t len = read_serial_to_buffer(SIM7600, serial_buffer, sizeof(serial_buffer));
     if (len > 0)
     {
-      DBG_L4_PRINTLN(serial_buffer);
+      DBG_L4LN_V(serial_buffer);
       
       // Look for +CMTI: notification to read the SMS manually
       char* cmtiPtr = strstr(serial_buffer, "+CMTI:");
@@ -5090,14 +5106,14 @@ bool find_mobile_number(const char* _input, uint16_t inputLen)
   
   for (uint16_t i = 0; i < inputLen - 2; i++)
   {
-    if (_input[i] == '"' && _input[i+1] == ',' && _input[i+2] == '"' && index2 == -1 && i > index1)
+    if (_input[i] == '"' && _input[i+1] == ',' && _input[i+2] == '"' && index2 == -1 && (int16_t)i > index1)
       index2 = i;
   }
 
   DEBUG_PRINT("index1: ");
-  DEBUG_PRINTLN(index1);
+  DEBUG_PRINTLN_VAR(index1);
   DEBUG_PRINT("index2: ");
-  DEBUG_PRINTLN(index2);
+  DEBUG_PRINTLN_VAR(index2);
 
   if (index1 == -1 || index2 == -1 || index1 >= index2)
     return false;
@@ -5120,18 +5136,18 @@ bool find_mobile_number(const char* _input, uint16_t inputLen)
   }
   received_mobile_number_in_char[k] = '\0';
 
-  DEBUG_PRINTLN(F("Mobile number extracted:"));
-  DEBUG_PRINTLN(received_mobile_number_in_char);
+  DEBUG_PRINTLN("Mobile number extracted:");
+  DEBUG_PRINTLN_VAR(received_mobile_number_in_char);
 
   _user_id_from_mobile_number = find_mobile_number_index_from_eeprom(received_mobile_number_in_char);
   DEBUG_PRINT("User ID from mobile: ");
-  DEBUG_PRINTLN(_user_id_from_mobile_number);
+  DEBUG_PRINTLN_VAR(_user_id_from_mobile_number);
   
   return true;
 
   /*
     DBG_L4(F("index :"));
-    DBG_L4_PRINTLN(index);
+    DBG_L4LN_V(index);
     if (!index)
     {
       return false;
@@ -5187,7 +5203,7 @@ bool find_mobile_number(const char* _input, uint16_t inputLen)
  */
 uint8_t api_unlock_door()
 {
-  DEBUG_PRINTLN(F("Unlock Door"));
+  DEBUG_PRINTLN("Unlock Door");
   print_all_received_para();
   
   // Verify mobile number is registered
@@ -5227,8 +5243,8 @@ uint8_t api_unlock_door()
   
   if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
   {
-    DBG_L1(F("Invalid user_id parsed: "));
-    DBG_L1_PRINTLN(_user_id);
+    DBG_L1("Invalid user_id parsed: ");
+    DBG_L1LN_V(_user_id);
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
     return CMD_NOT_FOUND;
   }
@@ -5236,8 +5252,8 @@ uint8_t api_unlock_door()
   // Parse password from para[1]
   if (para_len[1] < 4 || para_len[1] > 15)
   {
-    DBG_L1(F("Invalid password length: "));
-    DBG_L1_PRINTLN(para_len[1]);
+    DBG_L1("Invalid password length: ");
+    DBG_L1LN_V(para_len[1]);
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_LENGH_IS_NOT_IN_LIMIT);
     return CMD_NOT_FOUND;
   }
@@ -5254,7 +5270,7 @@ uint8_t api_unlock_door()
       // Master password verified - set flag and timestamp
       sms_master_verified = true;
       sms_master_verified_time = millis();
-      DBG_L2_PRINTLN(F("SMS Master verified - waiting for user verification"));
+      DBG_L2_PRINTLN("SMS Master verified - waiting for user verification");
       SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_UNLOCK_CMD_ACCEPTED);
       return CMD_EXECUTED;
     }
@@ -5262,7 +5278,7 @@ uint8_t api_unlock_door()
     {
       // Master password failed - reset flag
       sms_master_verified = false;
-      DBG_L2_PRINTLN(F("SMS Master password verification failed"));
+      DBG_L2_PRINTLN("SMS Master password verification failed");
       SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
       return CMD_NOT_FOUND;
     }
@@ -5271,7 +5287,7 @@ uint8_t api_unlock_door()
   // STEP 2: For non-master users, check if master was verified first
   if (!sms_master_verified)
   {
-    DBG_L2_PRINTLN(F("SMS Master not verified - unlock denied"));
+    DBG_L2_PRINTLN("SMS Master not verified - unlock denied");
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, NO_ACCESS_ALLOWED);
     return CMD_NOT_FOUND;
   }
@@ -5305,7 +5321,7 @@ uint8_t api_unlock_door()
   {
     // User password failed - reset master verification
     sms_master_verified = false;
-    DBG_L2_PRINTLN(F("SMS User password verification failed"));
+    DBG_L2_PRINTLN("SMS User password verification failed");
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
     return CMD_NOT_FOUND;
   }
@@ -5319,7 +5335,7 @@ uint8_t api_unlock_door()
  */
 uint8_t api_lock_door()
 {
-  DEBUG_PRINTLN(F("Lock Door"));
+  DEBUG_PRINTLN("Lock Door");
   print_all_received_para();
   
   // Verify mobile number is registered
@@ -5357,8 +5373,8 @@ uint8_t api_lock_door()
   
   if (_user_id == 0 || _user_id > MAX_NUM_OF_USERS)
   {
-    DBG_L1(F("Invalid user_id parsed: "));
-    DBG_L1_PRINTLN(_user_id);
+    DBG_L1("Invalid user_id parsed: ");
+    DBG_L1LN_V(_user_id);
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_INVALID);
     return CMD_NOT_FOUND;
   }
@@ -5366,8 +5382,8 @@ uint8_t api_lock_door()
   // Parse password from para[1]
   if (para_len[1] < 4 || para_len[1] > 15)
   {
-    DBG_L1(F("Invalid password length: "));
-    DBG_L1_PRINTLN(para_len[1]);
+    DBG_L1("Invalid password length: ");
+    DBG_L1LN_V(para_len[1]);
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_LENGH_IS_NOT_IN_LIMIT);
     return CMD_NOT_FOUND;
   }
@@ -5383,7 +5399,7 @@ uint8_t api_lock_door()
     user_id = _user_id;
     is_displayed = 0;
     b_command_close_door = 1;
-    DBG_L3_PRINTLN(F("4441"));
+    DBG_L3_PRINTLN("4441");
     b_error_in_door_close = 0;
     display_screen = LOCK_DOOR_STATE;
     SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, DOOR_LOCK_CMD_ACCEPTED);
@@ -5408,7 +5424,7 @@ uint8_t api_lock_door()
  */
 uint8_t api_add_user()
 {
-  DEBUG_PRINTLN(F("Add User"));
+  DEBUG_PRINTLN("Add User");
   print_all_received_para();
 
   // Only master user (index 0) can add users
@@ -5504,7 +5520,7 @@ uint8_t api_add_user()
  */
 void api_verify_otp()
 {
-  DEBUG_PRINTLN(F("Verify OTP"));
+  DEBUG_PRINTLN("Verify OTP");
   print_all_received_para();
 
   if (_user_id_from_mobile_number != 0)
@@ -5522,10 +5538,10 @@ void api_verify_otp()
     b_otp_not_matched = 0;
     for (uint8_t i = 0; i < 6; i++)
     {
-      DBG_L4(otp[i]);
-      DBG_L4(F(":"));
-      DBG_L4(generated_otp[i]);
-      DBG_L4_PRINTLN(F(">"));
+      DBG_L4V(otp[i]);
+      DBG_L4(":");
+      DBG_L4V(generated_otp[i]);
+      DBG_L4_PRINTLN(">");
       if (otp[i] != generated_otp[i])
       {
         b_otp_not_matched = 1;
@@ -5579,7 +5595,7 @@ void api_verify_otp()
  */
 uint8_t api_remove_user()
 {
-  DEBUG_PRINTLN(F("Remove User"));
+  DEBUG_PRINTLN("Remove User");
   print_all_received_para();
   
   // Only master user (index 0) can remove users
@@ -5687,7 +5703,7 @@ uint8_t api_factory_reset()
  */
 uint8_t api_change_password()
 {
-  DEBUG_PRINTLN(F("Change Password"));
+  DEBUG_PRINTLN("Change Password");
   print_all_received_para();
   
   // Verify mobile number is registered
@@ -5936,27 +5952,27 @@ void api_update_time_slot()
 
 void print_all_received_para()
 {
-  DBG_L4(F("CMD:"));
-  DBG_L4_PRINTLN(cmd);
-  DBG_L4(F("PARA_COUNT:"));
-  DBG_L4_PRINTLN(para_count);
+  DBG_L4("CMD:");
+  DBG_L4LN_V(cmd);
+  DBG_L4("PARA_COUNT:");
+  DBG_L4LN_V(para_count);
   for (uint8_t i = 0; i < para_count; i++)
   {
-    DBG_L4(F("Para["));
-    DBG_L4(i);
-    DBG_L4(F(":"));
-    DBG_L4(para_len[i]);
-    DBG_L4(F("]:"));
+    DBG_L4("Para[");
+    DBG_L4V(i);
+    DBG_L4(":");
+    DBG_L4V(para_len[i]);
+    DBG_L4("]:");
     // for (uint8_t j = 0; j < MAX_CMD_LEN; j++)
-    DBG_L4_PRINTLN(para[i]);
+    DBG_L4LN_V(para[i]);
   }
 }
 
 void print_array(char *arr, uint8_t len)
 {
   for (uint8_t i = 0; i < len; i++)
-    DBG_L4(arr[i]);
-  DBG_L4_PRINTLN(F("--------->"));
+    DBG_L4V(arr[i]);
+  DBG_L4_PRINTLN("--------->");
 }
 int8_t find_mobile_number_index_from_eeprom(char *_input_mobile_number)
 {
@@ -5985,17 +6001,17 @@ int8_t find_mobile_number_index_from_eeprom(char *_input_mobile_number)
 
 void add_all_api()
 {
-  add_api("UNLOCK", api_unlock_door);
-  add_api("LOCK", api_lock_door);
-  add_api("ADDUSER", api_add_user);
-  add_api("OTP", api_verify_otp);
-  add_api("REMOVEUSER", api_remove_user);
-  add_api("LOSTPW", api_lost_password);
-  add_api("CHANGEPW", api_change_password);
-  add_api("FACTRESET", api_factory_reset);
-  add_api("TIMESLOT", api_update_time_slot);
+  add_api("UNLOCK", (functionPtr)api_unlock_door);
+  add_api("LOCK", (functionPtr)api_lock_door);
+  add_api("ADDUSER", (functionPtr)api_add_user);
+  add_api("OTP", (functionPtr)api_verify_otp);
+  add_api("REMOVEUSER", (functionPtr)api_remove_user);
+  add_api("LOSTPW", (functionPtr)api_lost_password);
+  add_api("CHANGEPW", (functionPtr)api_change_password);
+  add_api("FACTRESET", (functionPtr)api_factory_reset);
+  add_api("TIMESLOT", (functionPtr)api_update_time_slot);
 }
-void add_api(char *api_string, void *function)
+void add_api(const char *api_string, functionPtr function)
 {
   func_list[total_api] = function;
   total_api = total_api + 1;
@@ -6024,12 +6040,12 @@ int8_t find_cmd_index(char *str_cmd)
 bool process_request()
 {
   int8_t cmd_index = find_cmd_index(&cmd[0]);
-  DBG_L4(F("cmd index "));
-  DBG_L4_PRINTLN(cmd_index);
+  DBG_L4("cmd index ");
+  DBG_L4LN_V(cmd_index);
   uint8_t response = 0;
   if (cmd_index == -1)
   {
-    DEBUG_PRINTLN(F("CMD NOT FOUND!"));
+    DEBUG_PRINTLN("CMD NOT FOUND!");
     return 0;
   }
   else
@@ -6043,6 +6059,7 @@ bool process_request()
       break;
     }
   }
+  return 1;
 }
 void copy_array(char *from_array, char *to_array, uint8_t len_to_be_copied)
 {
@@ -6053,10 +6070,10 @@ void copy_array(char *from_array, char *to_array, uint8_t len_to_be_copied)
     {
       to_array[j] = from_array[i];
       j++;
-      DBG_L4(from_array[i]);
+      DBG_L4V(from_array[i]);
     }
   }
-  DBG_L4_PRINTLN();
+  Serial.println();
 }
 
 /**
@@ -6106,7 +6123,7 @@ bool parse_vars(const char* _input, uint16_t inputLen)
   }
   
   DEBUG_PRINT("parse_vars: Extracted segment: ");
-  DEBUG_PRINTLN(char_array);
+  DEBUG_PRINTLN_VAR(char_array);
 
   para_count = 0;
   
@@ -6137,7 +6154,7 @@ bool parse_vars(const char* _input, uint16_t inputLen)
         }
         else
         {
-          DEBUG_PRINTLN(F("cmd not found in parse request"));
+          DEBUG_PRINTLN("cmd not found in parse request");
           return 0;
         }
       }
@@ -6172,17 +6189,17 @@ bool parse_vars(const char* _input, uint16_t inputLen)
 
   /* Print Para Counts and CMD */
   DEBUG_PRINT("CMD:");
-  DEBUG_PRINTLN(cmd);
+  DEBUG_PRINTLN_VAR(cmd);
   DEBUG_PRINT("PARA_COUNT:");
-  DEBUG_PRINTLN(para_count);
+  DEBUG_PRINTLN_VAR(para_count);
   for (uint8_t i = 0; i < para_count; i++)
   {
     DEBUG_PRINT("Para[");
-    DEBUG_PRINT(i);
+    DEBUG_PRINT_VAR(i);
     DEBUG_PRINT(":");
-    DEBUG_PRINT(para_len[i]);
+    DEBUG_PRINT_VAR(para_len[i]);
     DEBUG_PRINT("]:");
-    DEBUG_PRINTLN(para[i]);
+    DEBUG_PRINTLN_VAR(para[i]);
   }
 
   return 1;
@@ -6296,8 +6313,8 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
   
   if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
-  DBG_L4(F("input index :: "));
-  DBG_L4_PRINTLN(mobile_number_index);
+  DBG_L4("input index :: ");
+  DBG_L4LN_V(mobile_number_index);
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
@@ -6307,16 +6324,16 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
   delay(100); // Wait for module stability after prompt
 
   SIM7600.print(F("The BMS System Door Has Been "));
-  DBG_L3(F("The BMS System Door Has Been "));
+  DBG_L3("The BMS System Door Has Been ");
   if (_is_door_open)
   {
     SIM7600.print(F("Opened"));
-    DBG_L3(F("Opened"));
+    DBG_L3("Opened");
   }
   else
   {
     SIM7600.print(F("Closed"));
-    DBG_L3_PRINTLN(F("Closed"));
+    DBG_L3_PRINTLN("Closed");
   }
   SIM7600.print(F(" By User-"));
   SIM7600.print(id);
@@ -6325,19 +6342,20 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
   SIM7600.println();
   
   if (sendATCommand("\x1A", "OK", 5000)) {
-    DBG_L2_PRINTLN(F("Message Sent!!"));
+    DBG_L2_PRINTLN("Message Sent!!");
   } else {
-    DBG_L1_PRINTLN(F("Message Failed!!"));
+    DBG_L1_PRINTLN("Message Failed!!");
   }
 }
 void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
+  (void)_otp;
   char mbn[12];  // 10 digits + null terminator
   if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  DBG_L3_PRINTLN(mbn);
+  DBG_L3LN_V(mbn);
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
   if (!sendATCommand(cmd, ">", 2000)) return;
@@ -6353,19 +6371,20 @@ void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.println(generated_otp[5]);
 
   if (sendATCommand("\x1A", "OK", 5000)) {
-    DBG_L2_PRINTLN(F("Vib Alarm Message Sent!!"));
+    DBG_L2_PRINTLN("Vib Alarm Message Sent!!");
   } else {
-    DBG_L1_PRINTLN(F("Vib Alarm Message Failed!!"));
+    DBG_L1_PRINTLN("Vib Alarm Message Failed!!");
   }
 }
 void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
+  (void)_otp;
   char mbn[12];  // 10 digits + null terminator
   if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  DBG_L3_PRINTLN(mbn);
+  DBG_L3LN_V(mbn);
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
   if (!sendATCommand(cmd, ">", 2000)) return;
@@ -6381,19 +6400,20 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
   SIM7600.println(generated_otp[5]);
 
   if (sendATCommand("\x1A", "OK", 5000)) {
-    DBG_L2_PRINTLN(F("Temp Alarm Message Sent!!"));
+    DBG_L2_PRINTLN("Temp Alarm Message Sent!!");
   } else {
-    DBG_L1_PRINTLN(F("Temp Alarm Message Failed!!"));
+    DBG_L1_PRINTLN("Temp Alarm Message Failed!!");
   }
 }
 void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
 {
+  (void)_otp;
   char mbn[12];  // 10 digits + null terminator
   if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  DBG_L3_PRINTLN(mbn);
+  DBG_L3LN_V(mbn);
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
   if (!sendATCommand(cmd, ">", 2000)) return;
@@ -6410,10 +6430,10 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   
   if (sendATCommand("\x1A", "OK", 5000)) {
     Serial.println(F("DEBUG: Gun Point Message Sent OK"));
-    DBG_L2_PRINTLN(F("Gun Point Message Sent!!"));
+    DBG_L2_PRINTLN("Gun Point Message Sent!!");
   } else {
     Serial.println(F("DEBUG: Gun Point Message FAILED"));
-    DBG_L1_PRINTLN(F("Gun Point Message Failed!!"));
+    DBG_L1_PRINTLN("Gun Point Message Failed!!");
   }
 }
 void MakeCallWithNumber(uint8_t mobile_number_index)
@@ -6438,7 +6458,7 @@ void SendMessageAuthFail(uint8_t mobile_number_index)
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  DBG_L3_PRINTLN(mbn);
+  DBG_L3LN_V(mbn);
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
   if (!sendATCommand(cmd, ">", 2000)) return;
@@ -6450,9 +6470,9 @@ void SendMessageAuthFail(uint8_t mobile_number_index)
   SIM7600.println();
 
   if (sendATCommand("\x1A", "OK", 5000)) {
-    DBG_L2_PRINTLN(F("Auth Fail Message Sent!!"));
+    DBG_L2_PRINTLN("Auth Fail Message Sent!!");
   } else {
-    DBG_L1_PRINTLN(F("Auth Fail Message Failed!!"));
+    DBG_L1_PRINTLN("Auth Fail Message Failed!!");
   }
 }
 
@@ -6463,7 +6483,7 @@ void SendMessageDoorTimeout(uint8_t mobile_number_index)
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  DBG_L3_PRINTLN(mbn);
+  DBG_L3LN_V(mbn);
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
   if (!sendATCommand(cmd, ">", 2000)) return;
@@ -6480,9 +6500,9 @@ void SendMessageDoorTimeout(uint8_t mobile_number_index)
   SIM7600.println();
 
   if (sendATCommand("\x1A", "OK", 5000)) {
-    DBG_L2_PRINTLN(F("Door Timeout Alert Message Sent!!"));
+    DBG_L2_PRINTLN("Door Timeout Alert Message Sent!!");
   } else {
-    DBG_L1_PRINTLN(F("Door Timeout Alert Message Failed!!"));
+    DBG_L1_PRINTLN("Door Timeout Alert Message Failed!!");
   }
 }
 
@@ -6501,7 +6521,7 @@ void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
-  DBG_L3_PRINTLN(mbn);
+  DBG_L3LN_V(mbn);
   SIM7600.print("AT+CMGS=\"+91");
   SIM7600.print(mbn);
   SIM7600.println("\"\r"); // Replace x with mobile number
@@ -6575,7 +6595,7 @@ void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
   
   if (string_to_send != NULL)
   {
-    DBG_L3_PRINTLN(string_to_send);
+    DBG_L3LN_V(string_to_send);
     SIM7600.println(string_to_send);
     
     if (sendATCommand("\x1A", "OK", 5000)) {
@@ -6610,10 +6630,10 @@ void SendPWMessageWithDesc(uint8_t mobile_number_index, uint8_t index)
   SIM7600.println();
   
   if (sendATCommand("\x1A", "OK", 5000)) {
-    DBG_L2_PRINTLN(F("Password Sent!"));
+    DBG_L2_PRINTLN("Password Sent!");
     ReceiveMessage();
   } else {
-    DBG_L1_PRINTLN(F("Password Failed!"));
+    DBG_L1_PRINTLN("Password Failed!");
   }
 }
 void SendMessage()
@@ -6753,7 +6773,7 @@ void updateSerial()
   if (SIM7600.available())
   {
     call = SIM7600.read();
-    DEBUG_PRINT(call);
+    DEBUG_PRINT_VAR(call);
   }
 }
 void MakeCall()
@@ -6899,7 +6919,7 @@ void setup()
 
 
   temp_sen_init();
-  DBG_L2_PRINTLN(F("Started"));
+  DBG_L2_PRINTLN("Started");
   init_eeprom();
 #ifdef ENABLE_USER_REGISTRATION
   register_new_user(1, "9123456789", "1234"); // Registers Master User
@@ -6907,9 +6927,9 @@ void setup()
 #endif
 
   port = &Serial;
-  DBG_L2_PRINTLN(F("EEPROM Write Started"));
+  DBG_L2_PRINTLN("EEPROM Write Started");
   print_eeprom_data(port);
-  DBG_L2_PRINTLN(F("EEPROM Write Complete"));
+  DBG_L2_PRINTLN("EEPROM Write Complete");
   
   // Print holidays at startup
   read_holidays_from_eeprom();
