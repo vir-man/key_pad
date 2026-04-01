@@ -1271,7 +1271,9 @@ const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
-//#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+// #define ENABLE_USER_REGISTRATION
+
 
 
 bool is_door_aligned_by_ir()
@@ -2049,14 +2051,16 @@ bool check_if_user_is_allowed_in_time_slot(uint8_t _user_id)
     return 0;
   }
   
-  if (is_in_out_time_configured[_user_id])
+  uint8_t user_index = _user_id - 1; // Adjust to 0-based index
+  
+  if (is_in_out_time_configured[user_index])
   {
     hour = rtc.hour();
     minute = rtc.minute();
-    uint8_t in_time = in_time_hour[_user_id] * 100 + in_time_minute[_user_id];
-    uint8_t out_time = out_time_hour[_user_id] * 100 + out_time_minute[_user_id];
+    uint16_t in_time = (uint16_t)in_time_hour[user_index] * 100 + in_time_minute[user_index];
+    uint16_t out_time = (uint16_t)out_time_hour[user_index] * 100 + out_time_minute[user_index];
 
-    uint8_t now_time = hour * 100 + minute;
+    uint16_t now_time = (uint16_t)hour * 100 + minute;
 
     if (now_time >= in_time && now_time <= out_time)
     {
@@ -6822,6 +6826,48 @@ void lcd_power_off()
   finger.LEDcontrol(FINGERPRINT_LED_ON, 0, FINGERPRINT_LED_OFF);
 }
 
+// #define ENABLE_USER_REGISTRATION
+
+#ifdef ENABLE_USER_REGISTRATION
+/**
+ * @brief Helper function to register a user by ID
+ * @param user_id 1-based User ID (1 for Master, 2+ for users)
+ * @param mobile Exactly 10-digit mobile number string (e.g. "9876543210")
+ * @param password Password string (4 to 15 characters)
+ */
+void register_new_user(uint8_t user_id, const char* mobile, const char* password) {
+  // 1. Validate User ID range (1 to MAX_USER_TO_BE_STORED)
+  if (user_id < 1 || user_id > MAX_NUM_OF_USERS) {
+    Serial.println(F("Registration Failed: Invalid User ID"));
+    return;
+  }
+
+  // 2. Validate Password length
+  uint8_t pass_len = strlen(password);
+  if (pass_len < 4 || pass_len > 15) {
+    Serial.println(F("Registration Failed: Password length invalid (4-15)"));
+    return;
+  }
+
+  // 3. Validate Mobile number length
+  if (strlen(mobile) != 10) {
+    Serial.println(F("Registration Failed: Mobile number must be 10 digits"));
+    return;
+  }
+
+  // 4. Update EEPROM (Converts 1-based user_id to 0-based index)
+  uint8_t index = user_id - 1;
+  update_eeprom_data_at_index(index, (char*)mobile, (char*)password, pass_len);
+
+  // 5. Reload EEPROM data into RAM variables so changes take effect immediately
+  update_data_from_eeprom();
+
+  Serial.print(F("Successfully registered User-"));
+  Serial.println(user_id);
+}
+#endif
+
+
 void setup()
 {
 
@@ -6841,6 +6887,11 @@ void setup()
   temp_sen_init();
   DBG_L2_PRINTLN(F("Started"));
   init_eeprom();
+#ifdef ENABLE_USER_REGISTRATION
+  register_new_user(1, "9123456789", "1234"); // Registers Master User
+  register_new_user(2, "9123456789", "1234"); // Registers User 2
+#endif
+
   port = &Serial;
   DBG_L2_PRINTLN(F("EEPROM Write Started"));
   print_eeprom_data(port);
