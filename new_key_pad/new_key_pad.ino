@@ -1514,6 +1514,8 @@ bool b_send_close_door_message = 0;
 #define VIBRATION_ALARM_MSG 6
 #define AUTH_FAIL_MSG 7
 #define DOOR_TIMEOUT_MSG 8
+#define SEND_DESC_MSG 9
+#define SEND_PW_MSG 10
 
 uint8_t type_list[10];
 uint8_t message_details[10];
@@ -1810,6 +1812,7 @@ void vibration_sensor_fsm()
 #define USER_CREATED_ACK 18
 #define OTP_MATCHED 19
 #define OTP_NOT_MATCHED 20
+#define ALERT_GEN_CMD_ACCEPTED 21
 
 #define RECEIVED_MOBILE_NUMBER_INDEX (MAX_NUM_OF_USERS + 1)
 #define MASTER_USER_ID 0
@@ -4776,9 +4779,9 @@ uint8_t para_count = 0;
 uint8_t cmd_length = 0;
 
 /* api function pointer array variables [START] */
-functionPtr func_list[10] = {};
+functionPtr func_list[15] = {};
 
-#define MAX_API 10
+#define MAX_API 15
 uint8_t total_api = 0;
 static char api_list[MAX_API + 1][45] = {"{\"status\":\"failure\",\"data\":\"ANF or WSP \"}"};
 /* api function pointer array variables [END] */
@@ -5999,6 +6002,98 @@ int8_t find_mobile_number_index_from_eeprom(char *_input_mobile_number)
   return -1;
 }
 
+/**
+ * @brief SMS API: Manually generates Vibration Alert
+ */
+uint8_t api_generate_vibration_alert()
+{
+  DEBUG_PRINTLN("Generating Vibration Alert via API");
+  if (_user_id_from_mobile_number == -1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  if (para_count < 1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  if (is_password_valid(1, para[0], para_len[0]))
+  {
+    trigger_alarm(b_vibration_alarm_triggered, vibration_change_counter);
+    gpa_state = GPA_SEND_MESSAGE;
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, ALERT_GEN_CMD_ACCEPTED);
+    return CMD_EXECUTED;
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+    return CMD_NOT_FOUND;
+  }
+}
+
+/**
+ * @brief SMS API: Manually generates Temperature Alert
+ */
+uint8_t api_generate_temp_alert()
+{
+  DEBUG_PRINTLN("Generating Temp Alert via API");
+  if (_user_id_from_mobile_number == -1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  if (para_count < 1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  if (is_password_valid(1, para[0], para_len[0]))
+  {
+    trigger_alarm(b_temperature_alarm_triggerd, temperature_counter);
+    gpa_state = GPA_SEND_MESSAGE;
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, ALERT_GEN_CMD_ACCEPTED);
+    return CMD_EXECUTED;
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+    return CMD_NOT_FOUND;
+  }
+}
+
+/**
+ * @brief SMS API: Manually generates Gunpoint (Duress) Alert
+ */
+uint8_t api_generate_gunpoint_alert()
+{
+  DEBUG_PRINTLN("Generating Gunpoint Alert via API");
+  if (_user_id_from_mobile_number == -1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, USER_NO_REGISTERED);
+    return CMD_NOT_FOUND;
+  }
+  if (para_count < 1)
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PARA_MISSING);
+    return CMD_NOT_FOUND;
+  }
+  if (is_password_valid(1, para[0], para_len[0]))
+  {
+    b_gun_point_activation_triggerd = 1;
+    generate_random_otp();
+    gpa_state = GPA_SEND_MESSAGE;
+    lcd_power_off();
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, ALERT_GEN_CMD_ACCEPTED);
+    return CMD_EXECUTED;
+  }
+  else
+  {
+    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, PW_IS_NO_VALID);
+    return CMD_NOT_FOUND;
+  }
+}
+
 void add_all_api()
 {
   add_api("UNLOCK", (functionPtr)api_unlock_door);
@@ -6010,6 +6105,9 @@ void add_all_api()
   add_api("CHANGEPW", (functionPtr)api_change_password);
   add_api("FACTRESET", (functionPtr)api_factory_reset);
   add_api("TIMESLOT", (functionPtr)api_update_time_slot);
+  add_api("VIBALRT", (functionPtr)api_generate_vibration_alert);
+  add_api("TEMPALRT", (functionPtr)api_generate_temp_alert);
+  add_api("GPAALRT", (functionPtr)api_generate_gunpoint_alert);
 }
 void add_api(const char *api_string, functionPtr function)
 {
@@ -6597,9 +6695,9 @@ void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
   {
     DBG_L3LN_V(string_to_send);
     SIM7600.println(string_to_send);
-    
+
     if (sendATCommand("\x1A", "OK", 5000)) {
-      ReceiveMessage();
+       ReceiveMessage();
     }
   }
 }
@@ -6660,7 +6758,7 @@ void gsm_init()
 
 bool sendATCommand(const char* cmd, const char* expectedResponse, unsigned long timeout) {
   while(SIM7600.available()) { SIM7600.read(); }
-  SIM7600.println(cmd);
+    SIM7600.println(cmd);
   unsigned long t = millis();
   String response = "";
   while(millis() - t < timeout) {
@@ -6678,7 +6776,7 @@ bool sendATCommand(const char* cmd, const char* expectedResponse, unsigned long 
 
 String sendATCommandReturn(const char* cmd, unsigned long timeout) {
   while(SIM7600.available()) { SIM7600.read(); }
-  SIM7600.println(cmd);
+    SIM7600.println(cmd);
   unsigned long t = millis();
   String response = "";
   while(millis() - t < timeout) {
@@ -6765,7 +6863,9 @@ void gsm_module_init()
       sendATCommand("AT+CSCS=\"GSM\"", "OK", 1000);
       sendATCommand("AT+CMGF=1", "OK", 1000);
       sendATCommand("AT+CSMP=17,167,0,0", "OK", 1000);
-      sendATCommand("AT+CMGDA=\"DEL ALL\"", "OK", 3000);
+      // Use AT+CMGD=0,4 to delete ALL messages (read, sent, unsent, draft)
+      // AT+CMGDA="DEL ALL" can fail on some SIM7600 firmware versions
+      sendATCommand("AT+CMGD=0,4", "OK", 5000);
       sendATCommand("AT+CNMI=2,1", "OK", 1000);
     }
   }
