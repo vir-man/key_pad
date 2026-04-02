@@ -1516,6 +1516,8 @@ bool b_send_close_door_message = 0;
 #define DOOR_TIMEOUT_MSG 8
 #define SEND_DESC_MSG 9
 #define SEND_PW_MSG 10
+#define TEMP_CALL 11
+#define VIBRATION_CALL 12
 
 uint8_t type_list[10];
 uint8_t message_details[10];
@@ -1981,67 +1983,47 @@ void gun_point_activation_fsm()
 {
   if (b_gun_point_activation_triggerd || b_temperature_alarm_triggerd || b_vibration_alarm_triggered)
   {
-    // Only re-populate queue if enough time has passed since last alert round
+    // Important: Only add next user's alerts if queue is nearly empty to prevent overflow
     if (queue_index < 1 && (millis() - last_alert_added_time > ALERT_RETRY_INTERVAL_MS || last_alert_added_time == 0))
     {
-      switch (gpa_state)
+      uint8_t found_index = 255;
+      for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
       {
-      case GPA_DO_NOTHING:
-        break;
+        uint8_t idx = (current_gpa_user_id + i) % MAX_NUM_OF_USERS;
         
-      case GPA_SEND_MESSAGE:
-        for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
-        {
-          if (b_temperature_alarm_triggerd)
-          {
-            if (is_password_configured[i])
-            {
-              update_queue(TEMP_ALARM_MSG, i);
-            }
-          }
-          else if (b_vibration_alarm_triggered)
-          {
-            if (is_password_configured[i])
-            {
-              update_queue(VIBRATION_ALARM_MSG, i);
-            }
-          }
-          else
-          {
-            // Gun point activation - exclude triggering user
-            if (is_password_configured[i] && (user_id - 1) != i)
-            {
-              update_queue(GUN_POINT_MSG, i);
-            }
-          }
-        }
-        last_alert_added_time = millis(); // Update timer after adding messages
-        gpa_state = GPA_CALL;
-        break;
+        // Skip calling yourself in Gunpoint alert
+        if (b_gun_point_activation_triggerd && (user_id - 1) == idx) continue;
         
-      case GPA_CALL:
-        for (uint8_t i = 0; i < MAX_NUM_OF_USERS; i++)
+        if (is_password_configured[idx])
         {
-          if (b_temperature_alarm_triggerd)
-          {
-            // Temperature alarm - call all users
-            if (is_password_configured[i])
-            {
-              update_queue(GUN_POINT_CALL, i);
-            }
-          }
-          else
-          {
-            // Vibration or gun point - exclude triggering user
-            if (is_password_configured[i] && (user_id - 1) != i)
-            {
-              update_queue(GUN_POINT_CALL, i);
-            }
-          }
+          found_index = idx;
+          break;
         }
-        last_alert_added_time = millis(); // Update timer after adding calls
-        gpa_state = GPA_SEND_MESSAGE;
-        break;
+      }
+
+      if (found_index != 255)
+      {
+        // Queue both types for this user. 
+        // LIFO Queue order: Pushing Call then Msg means Msg sends first.
+        if (b_temperature_alarm_triggerd)
+        {
+          update_queue(TEMP_CALL, found_index);
+          update_queue(TEMP_ALARM_MSG, found_index);
+        }
+        else if (b_vibration_alarm_triggered)
+        {
+          update_queue(VIBRATION_CALL, found_index);
+          update_queue(VIBRATION_ALARM_MSG, found_index);
+        }
+        else
+        {
+          update_queue(GUN_POINT_CALL, found_index);
+          update_queue(GUN_POINT_MSG, found_index);
+        }
+
+        // Advance index for next cycle to ensure "Message-Call-Message-Call" rotation
+        current_gpa_user_id = (found_index + 1) % MAX_NUM_OF_USERS;
+        last_alert_added_time = millis();
       }
     }
   }
@@ -2382,7 +2364,7 @@ uint8_t generated_otp[6] = {
 uint8_t master_otp[6] = {
     4, 5, 5, 5, 5, 6};
 
-char char_generated_otp[6];
+char char_generated_otp[7]; // 6 digits + null terminator
 bool b_otp_not_matched = 0;
 void generate_random_otp()
 {
@@ -2404,6 +2386,7 @@ void generate_random_otp()
     generated_otp[i] = random(temp, 9);
     char_generated_otp[i] = generated_otp[i] + '0';
   }
+  char_generated_otp[6] = '\0'; // Null-terminate
   DBG_L3("Generated OTP : ");
   DBG_L3LN_V(char_generated_otp);
 }
@@ -4872,7 +4855,7 @@ void gsm_housekeeping_task()
       break;
       
     case GUN_POINT_MSG:
-      if (check_timeout_and_send(current_millis, 10000UL))
+      if (check_timeout_and_send(current_millis, 3000UL)) // Reduced SMS wait for faster throughput
       {
         print_status_P(GSM_MSG_GUNPOINT);
         DBG_L4LN_V(current_msg_detail);
@@ -4882,7 +4865,7 @@ void gsm_housekeeping_task()
       break;
       
     case VIBRATION_ALARM_MSG:
-      if (check_timeout_and_send(current_millis, 10000UL))
+      if (check_timeout_and_send(current_millis, 3000UL)) // Reduced SMS wait for faster throughput
       {
         print_status_P(GSM_MSG_VIBRATION);
         DBG_L4LN_V(current_msg_detail);
@@ -4892,7 +4875,7 @@ void gsm_housekeeping_task()
       break;
       
     case TEMP_ALARM_MSG:
-      if (check_timeout_and_send(current_millis, 10000UL))
+      if (check_timeout_and_send(current_millis, 3000UL)) // Reduced SMS wait for faster throughput
       {
         print_status_P(GSM_MSG_TEMPERATURE);
         DBG_L4LN_V(current_msg_detail);
@@ -4902,9 +4885,31 @@ void gsm_housekeeping_task()
       break;
       
     case GUN_POINT_CALL:
-      if (check_timeout_and_send(current_millis, call_timeout))
+      if (check_timeout_and_send(current_millis, 10000UL))
       {
         print_status_P(GSM_MSG_GUNPOINT_CALL);
+        DBG_L4LN_V(current_msg_detail);
+        MakeCallWithNumber(current_msg_detail);
+        queue_index--;
+      }
+      break;
+
+    case VIBRATION_CALL:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        static const char v_call_str[] PROGMEM = "Vibration Call Sent!!";
+        print_status_P(v_call_str);
+        DBG_L4LN_V(current_msg_detail);
+        MakeCallWithNumber(current_msg_detail);
+        queue_index--;
+      }
+      break;
+
+    case TEMP_CALL:
+      if (check_timeout_and_send(current_millis, 10000UL))
+      {
+        static const char t_call_str[] PROGMEM = "Temperature Call Sent!!";
+        print_status_P(t_call_str);
         DBG_L4LN_V(current_msg_detail);
         MakeCallWithNumber(current_msg_detail);
         queue_index--;
@@ -6022,7 +6027,7 @@ uint8_t api_generate_vibration_alert()
   {
     trigger_alarm(b_vibration_alarm_triggered, vibration_change_counter);
     gpa_state = GPA_SEND_MESSAGE;
-    SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, ALERT_GEN_CMD_ACCEPTED);
+    // SendMessageWithDesc(RECEIVED_MOBILE_NUMBER_INDEX, ALERT_GEN_CMD_ACCEPTED);
     return CMD_EXECUTED;
   }
   else
@@ -6111,9 +6116,9 @@ void add_all_api()
 }
 void add_api(const char *api_string, functionPtr function)
 {
+  strcpy(api_list[total_api], api_string);
   func_list[total_api] = function;
   total_api = total_api + 1;
-  strcpy(api_list[total_api], api_string);
 }
 
 /**
@@ -6125,7 +6130,7 @@ void add_api(const char *api_string, functionPtr function)
  */
 int8_t find_cmd_index(char *str_cmd)
 {
-  for (uint8_t i = 0; i < total_api + 1; i++)
+  for (uint8_t i = 0; i < total_api; i++)
   {
     if (!strcmp((const char *)&api_list[i], str_cmd))
     {
@@ -6148,7 +6153,7 @@ bool process_request()
   }
   else
   {
-    response = func_list[cmd_index - 1]();
+    response = func_list[cmd_index]();
     switch (response)
     {
     case CMD_NOT_FOUND:
@@ -6395,11 +6400,16 @@ void copy_mobile_number_to_buffer(uint8_t mobile_number_index, char *buffer, uin
   }
   else
   {
-    // Copy first 10 characters from mobile_number array
+    // Copy only valid digits from mobile_number array
     uint8_t i;
-    for (i = 0; i < 10 && i < buffer_size - 1 && mobile_number[mobile_number_index][i] != '\0'; i++)
+    for (i = 0; i < 10 && i < buffer_size - 1; i++)
     {
-      buffer[i] = mobile_number[mobile_number_index][i];
+      char c = mobile_number[mobile_number_index][i];
+      if (c >= '0' && c <= '9') {
+        buffer[i] = c;
+      } else {
+        break; // Stop at first non-digit (handles garbage/0xFF)
+      }
     }
     buffer[i] = '\0';
   }
@@ -6415,6 +6425,8 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
   DBG_L4LN_V(mobile_number_index);
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  
+  if (strlen(mbn) != 10) return; // Skip invalid or garbage EEPROM numbers
   
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
@@ -6447,26 +6459,39 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
 }
 void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
+  DBG_L2_PRINTLN("--- Entering SendMessageVibrationAlarmMessage ---");
   (void)_otp;
   char mbn[12];  // 10 digits + null terminator
-  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) {
+    DBG_L2_PRINTLN("ERR: AT+CMGF=1 failed");
+    return;
+  }
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  DBG_L2("mobile_number_index: "); DBG_L2LN_V(mobile_number_index);
+  DBG_L2("Extracted mbn: "); DBG_L2LN_V(mbn);
   
-  DBG_L3LN_V(mbn);
+  if (strlen(mbn) != 10) {
+    DBG_L2_PRINTLN("ERR: strlen(mbn) is not 10. Skipping.");
+    return; // Skip invalid or garbage EEPROM numbers
+  }
+  
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
-  if (!sendATCommand(cmd, ">", 2000)) return;
+  DBG_L2("Sending: "); DBG_L2LN_V(cmd);
+  
+  if (!sendATCommand(cmd, ">", 2000)) {
+    DBG_L2_PRINTLN("ERR: Did not receive '>' prompt");
+    return;
+  }
   delay(100); // Wait for module stability after prompt
 
   SIM7600.print(F("The BMS System Door Has Sensed High Vibration.\n"));
   SIM7600.print(F("OTP to Deactivate the sensor for your system is: "));
-  SIM7600.print(generated_otp[0]);
-  SIM7600.print(generated_otp[1]);
-  SIM7600.print(generated_otp[2]);
-  SIM7600.print(generated_otp[3]);
-  SIM7600.print(generated_otp[4]);
-  SIM7600.println(generated_otp[5]);
+  SIM7600.print(char_generated_otp);
+  SIM7600.print(F("\nRef: "));
+  SIM7600.print(millis()); // Dynamic ID to bypass telecom spam filters
+  SIM7600.println();
 
   if (sendATCommand("\x1A", "OK", 5000)) {
     DBG_L2_PRINTLN("Vib Alarm Message Sent!!");
@@ -6481,6 +6506,7 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
   if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  if (strlen(mbn) != 10) return; // Skip invalid or garbage EEPROM numbers
   
   DBG_L3LN_V(mbn);
   char cmd[32];
@@ -6490,12 +6516,10 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
 
   SIM7600.print(F("The BMS System Door Has Sensed High Temperature.\n"));
   SIM7600.print(F("OTP to Deactivate the sensor for your system is: "));
-  SIM7600.print(generated_otp[0]);
-  SIM7600.print(generated_otp[1]);
-  SIM7600.print(generated_otp[2]);
-  SIM7600.print(generated_otp[3]);
-  SIM7600.print(generated_otp[4]);
-  SIM7600.println(generated_otp[5]);
+  SIM7600.print(char_generated_otp);
+  SIM7600.print(F("\nRef: "));
+  SIM7600.print(millis()); // Dynamic ID to bypass telecom spam filters
+  SIM7600.println();
 
   if (sendATCommand("\x1A", "OK", 5000)) {
     DBG_L2_PRINTLN("Temp Alarm Message Sent!!");
@@ -6510,6 +6534,7 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
   if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
+  if (strlen(mbn) != 10) return; // Skip invalid or garbage EEPROM numbers
   
   DBG_L3LN_V(mbn);
   char cmd[32];
@@ -6519,12 +6544,10 @@ void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
 
   SIM7600.print(F("Duress Alert Is Activated in BMS System.\n"));
   SIM7600.print(F("OTP to Deactivate the sensor for your system is: "));
-  SIM7600.print(generated_otp[0]);
-  SIM7600.print(generated_otp[1]);
-  SIM7600.print(generated_otp[2]);
-  SIM7600.print(generated_otp[3]);
-  SIM7600.print(generated_otp[4]);
-  SIM7600.println(generated_otp[5]);
+  SIM7600.print(char_generated_otp);
+  SIM7600.print(F("\nRef: "));
+  SIM7600.print(millis()); // Dynamic ID to bypass telecom spam filters
+  SIM7600.println();
   
   if (sendATCommand("\x1A", "OK", 5000)) {
     Serial.println(F("DEBUG: Gun Point Message Sent OK"));
@@ -6614,16 +6637,15 @@ void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
   char mbn[12];  // 10 digits + null terminator
   const char *string_to_send = NULL;  // Use const char* instead of String
 
-  SIM7600.println(F("AT+CMGF=1")); // Sets the GSM Module in Text Mode
-  delay(1000);                  // Delay of 1000 milli seconds or 1 second
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
   
   DBG_L3LN_V(mbn);
-  SIM7600.print("AT+CMGS=\"+91");
-  SIM7600.print(mbn);
-  SIM7600.println("\"\r"); // Replace x with mobile number
-  delay(1000);
+  char cmd[32];
+  sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
+  if (!sendATCommand(cmd, ">", 2000)) return;
+  delay(100); // Wait for module stability after prompt
   
   switch (msg_index)
   {
@@ -6686,6 +6708,9 @@ void SendMessageWithDesc(uint8_t mobile_number_index, uint8_t msg_index)
     break;
   case OTP_NOT_MATCHED:
     string_to_send = "OTP doesn't Matched!";
+    break;
+  case ALERT_GEN_CMD_ACCEPTED:
+    string_to_send = "Alert Generation Command Accepted!";
     break;
   default:
     return; // Invalid message index
@@ -6758,7 +6783,7 @@ void gsm_init()
 
 bool sendATCommand(const char* cmd, const char* expectedResponse, unsigned long timeout) {
   while(SIM7600.available()) { SIM7600.read(); }
-    SIM7600.println(cmd);
+  SIM7600.println(cmd);
   unsigned long t = millis();
   String response = "";
   while(millis() - t < timeout) {
@@ -6776,7 +6801,7 @@ bool sendATCommand(const char* cmd, const char* expectedResponse, unsigned long 
 
 String sendATCommandReturn(const char* cmd, unsigned long timeout) {
   while(SIM7600.available()) { SIM7600.read(); }
-    SIM7600.println(cmd);
+  SIM7600.println(cmd);
   unsigned long t = millis();
   String response = "";
   while(millis() - t < timeout) {
@@ -6784,8 +6809,8 @@ String sendATCommandReturn(const char* cmd, unsigned long timeout) {
       char c = SIM7600.read();
       response += c;
       Serial.print(c);
+      }
     }
-  }
   return response;
 }
 
@@ -6818,6 +6843,9 @@ void gsm_module_init()
     Serial.println(F("Warning: GSM Module not responding to AT."));
   }
   else {
+    // Disable echo immediately so responses are clean
+    sendATCommand("ATE0", "OK", 1000);
+    
     // Force radio toggle to re-init SIM interface on soft reboots
     Serial.println(F("Resetting radio to force SIM detection..."));
     sendATCommand("AT+CFUN=0", "OK", 2000);
