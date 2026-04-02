@@ -1273,7 +1273,7 @@ unsigned long door_error_start_time;
 bool b_vibration_alarm_triggered = 0;
 bool b_gun_point_activation_triggerd = 0;
 unsigned long last_alert_added_time = 0;
-#define ALERT_RETRY_INTERVAL_MS 30000 // 5 minutes retry interval
+#define ALERT_RETRY_INTERVAL_MS 120000 // 5 minutes retry interval
 
 bool b_error_in_door_open = 0;
 bool b_error_in_door_close = 0;
@@ -6457,6 +6457,15 @@ void SendMessageDoorStatus(uint8_t mobile_number_index, uint8_t id, bool _is_doo
     DBG_L1_PRINTLN("Message Failed!!");
   }
 }
+/**
+ * @brief Sends a Vibration Alarm SMS via the SIM7600 module
+ * @flow
+ * 1. Checks and sets text mode (CMGF=1).
+ * 2. Retrieves the recipient's mobile number from memory.
+ * 3. Sends the AT+CMGS command and waits for the '>' prompt.
+ * 4. Prints the vibration alert message with a dynamic OTP and a unique reference timestamp.
+ * 5. Sends the Ctrl+Z character to transmit the message.
+ */
 void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
   DBG_L2_PRINTLN("--- Entering SendMessageVibrationAlarmMessage ---");
@@ -6499,19 +6508,42 @@ void SendMessageVibrationAlarmMessage(uint8_t mobile_number_index, char *_otp)
     DBG_L1_PRINTLN("Vib Alarm Message Failed!!");
   }
 }
+/**
+ * @brief Sends a Temperature Alarm SMS via the SIM7600 module
+ * @flow
+ * 1. Checks and sets text mode (CMGF=1).
+ * 2. Retrieves the recipient's mobile number from memory.
+ * 3. Sends the AT+CMGS command and waits for the '>' prompt.
+ * 4. Prints the temperature alert message with a dynamic OTP and a unique reference timestamp.
+ * 5. Sends the Ctrl+Z character to transmit the message.
+ */
 void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
 {
+  DBG_L2_PRINTLN("--- Entering SendMessageTempAlarmMessage ---");
   (void)_otp;
   char mbn[12];  // 10 digits + null terminator
-  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) {
+    DBG_L2_PRINTLN("ERR: AT+CMGF=1 failed");
+    return;
+  }
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
-  if (strlen(mbn) != 10) return; // Skip invalid or garbage EEPROM numbers
+  DBG_L2("mobile_number_index: "); DBG_L2LN_V(mobile_number_index);
+  DBG_L2("Extracted mbn: "); DBG_L2LN_V(mbn);
   
-  DBG_L3LN_V(mbn);
+  if (strlen(mbn) != 10) {
+    DBG_L2_PRINTLN("ERR: strlen(mbn) is not 10. Skipping.");
+    return; // Skip invalid or garbage EEPROM numbers
+  }
+  
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
-  if (!sendATCommand(cmd, ">", 2000)) return;
+  DBG_L2("Sending: "); DBG_L2LN_V(cmd);
+
+  if (!sendATCommand(cmd, ">", 2000)) {
+    DBG_L2_PRINTLN("ERR: Did not receive '>' prompt");
+    return;
+  }
   delay(100); // Wait for module stability after prompt
 
   SIM7600.print(F("The BMS System Door Has Sensed High Temperature.\n"));
@@ -6527,19 +6559,42 @@ void SendMessageTempAlarmMessage(uint8_t mobile_number_index, char *_otp)
     DBG_L1_PRINTLN("Temp Alarm Message Failed!!");
   }
 }
+/**
+ * @brief Sends a Gunpoint (Duress) Alarm SMS via the SIM7600 module
+ * @flow
+ * 1. Checks and sets text mode (CMGF=1).
+ * 2. Retrieves the recipient's mobile number from memory.
+ * 3. Sends the AT+CMGS command and waits for the '>' prompt.
+ * 4. Prints the duress alert message with a dynamic OTP and a unique reference timestamp.
+ * 5. Sends the Ctrl+Z character to transmit the message.
+ */
 void SendMessageGunPointMessage(uint8_t mobile_number_index, char *_otp)
 {
+  DBG_L2_PRINTLN("--- Entering SendMessageGunPointMessage ---");
   (void)_otp;
   char mbn[12];  // 10 digits + null terminator
-  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) return;
+  if (!sendATCommand("AT+CMGF=1", "OK", 1000)) {
+    DBG_L2_PRINTLN("ERR: AT+CMGF=1 failed");
+    return;
+  }
   
   copy_mobile_number_to_buffer(mobile_number_index, mbn, sizeof(mbn));
-  if (strlen(mbn) != 10) return; // Skip invalid or garbage EEPROM numbers
+  DBG_L2("mobile_number_index: "); DBG_L2LN_V(mobile_number_index);
+  DBG_L2("Extracted mbn: "); DBG_L2LN_V(mbn);
   
-  DBG_L3LN_V(mbn);
+  if (strlen(mbn) != 10) {
+    DBG_L2_PRINTLN("ERR: strlen(mbn) is not 10. Skipping.");
+    return; // Skip invalid or garbage EEPROM numbers
+  }
+  
   char cmd[32];
   sprintf(cmd, "AT+CMGS=\"+91%s\"", mbn);
-  if (!sendATCommand(cmd, ">", 2000)) return;
+  DBG_L2("Sending: "); DBG_L2LN_V(cmd);
+
+  if (!sendATCommand(cmd, ">", 2000)) {
+    DBG_L2_PRINTLN("ERR: Did not receive '>' prompt");
+    return;
+  }
   delay(100); // Wait for module stability after prompt
 
   SIM7600.print(F("Duress Alert Is Activated in BMS System.\n"));
