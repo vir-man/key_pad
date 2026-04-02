@@ -1286,7 +1286,7 @@ const int ir_input_pin = A0;
 bool b_siren_on = 0;
 
 
-#define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
+// #define BYPASS_ALL_SENSOR_AND_DOOR_INPUTS 1
 // #define ENABLE_USER_REGISTRATION
 
 
