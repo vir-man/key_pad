@@ -4300,6 +4300,7 @@ void lcd_task()
     {
       pass_length = 0;
       lcd_power_off();
+      module_power_off();
       user_bio_auth_fail_count = 0; // Reset on MAIN screen timeout
       first_user_verified = 0;
     }
@@ -7037,6 +7038,15 @@ void buzzer_task()
 /******** BUZZER [END] *********/
 const int LCD_GND = A11;
 const int LCD_VCC = A10;
+const int POWER_OFF_PIN = 40;
+void module_power_on(){
+   Serial.println(F("Module Power ON -------------->));
+   digitalWrite(POWER_OFF_PIN, 1);
+}
+void module_power_off(){
+   Serial.println(F("Module Power OFF ------------->));
+   digitalWrite(POWER_OFF_PIN, 0);   
+}
 void lcd_power_on()
 {
   digitalWrite(LCD_GND, 0);
@@ -7101,6 +7111,8 @@ void setup()
   wdt_disable();
   pinMode(LCD_GND, OUTPUT);
   pinMode(LCD_VCC, OUTPUT);
+  pinMode(POWER_OFF_PIN, OUTPUT);
+  module_power_on();
   rtc_begin();
   gpio_init();
   lcd_power_on();
